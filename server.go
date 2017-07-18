@@ -30,52 +30,33 @@ type IServer interface {
 	Procedure(ruid.RUID, ruid.RUID, uint64, uint64, []byte) ([]byte, error)
 }
 
+type Register func(IServer, map[string]uint64) Service
+
 type Server struct {
-	mutex  sync.Mutex
-	nodes  map[string]*Node
-	remote map[uint64]HashRing
-	local  map[uint64]Service
+	Node
+	mutex   sync.Mutex
+	nodes   map[string]*Node
+	symbols map[string]uint64
+	routes  map[uint64]map[uint64]bool
+	remote  map[uint64]HashRing
+	local   map[uint64]Service
 }
 
-func NewServer(nodes ...*Node) *Server {
+func NewServer(address string, symbols map[string]uint64, routes map[uint64]map[uint64]bool, rs ...Register) {
 	server := &Server{
-		nodes:  make(map[string]*Node),
-		remote: make(map[uint64]HashRing),
+		Address: address,
+		symbols: symbols,
+		routes:  routes,
+		nodes:   make(map[string]*Node),
+		remote:  make(map[uint64]HashRing),
+		local:   make(map[uint64]Service),
 	}
-	for _, node := range nodes {
-		for _, service := range node.Services {
-			if hashring, ok := server.remote[service]; ok {
-				server.remote[service] = hashring.Append(node.Address)
-			} else {
-				server.remote[service] = HashRing([]string{node.Address})
-			}
-		}
-		server.nodes[node.Address] = node
+	for _, r := range rs {
+		i, c := r(s, symbols)
+		s.remote[i] = HashRing([]string{address})
+		s.Services = append(s.Services, i)
+		s.local[i] = c
 	}
-	return server
-}
-
-func Discover(ip string, port int, namespace string, address string, services []uint64) (server *Server) {
-	cfg := client.Config{
-		Endpoints:               []string{fmt.Sprintf("http://%s:%d", ip, port)},
-		Transport:               client.DefaultTransport,
-		HeaderTimeoutPerRequest: time.Second,
-	}
-
-	if c, err := client.New(cfg); err == nil {
-		server = &Server{
-			nodes:  make(map[string]*Node),
-			remote: make(map[uint64]HashRing),
-		}
-		api := client.NewKeysAPI(c)
-		go server.watch(namespace, api)
-		if address != "" && len(services) > 0 {
-			go server.keep(namespace, api, address, services)
-		}
-	} else {
-		log.Fatalf("[MicroServer] Cannot connect to etcd:\n>>>>%v", err)
-	}
-	return
 }
 
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
@@ -84,6 +65,39 @@ func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []by
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
 
+}
+
+func (s *Server) Serve() {
+
+}
+
+func (s *Server) Register(nodes ...*Node) {
+	for _, node := range nodes {
+		for _, service := range node.Services {
+			if hashring, ok := s.remote[service]; ok {
+				s.remote[service] = hashring.Append(node.Address)
+			} else {
+				s.remote[service] = HashRing([]string{node.Address})
+			}
+		}
+		s.nodes[node.Address] = node
+	}
+}
+
+func (s *Server) Discover(ip string, port int, namespace string) {
+	cfg := client.Config{
+		Endpoints:               []string{fmt.Sprintf("http://%s:%d", ip, port)},
+		Transport:               client.DefaultTransport,
+		HeaderTimeoutPerRequest: time.Second,
+	}
+
+	if c, err := client.New(cfg); err == nil {
+		api := client.NewKeysAPI(c)
+		go server.keep(namespace, api)
+		go server.watch(namespace, api)
+	} else {
+		log.Fatalf("[MicroServer] Cannot connect to etcd:\n>>>>%v", err)
+	}
 }
 
 func (s *Server) Add(key string, node *Node) {
@@ -110,12 +124,9 @@ func (s *Server) Remove(key string) {
 	delete(s.nodes, key)
 }
 
-func (s *Server) keep(namespace string, api client.KeysAPI, address string, services []uint64) {
+func (s *Server) keep(namespace string, api client.KeysAPI) {
 	key := namespace + address
-	value, _ := json.Marshal(&Node{
-		Address:  address,
-		Services: services,
-	})
+	value, _ := json.Marshal(&s.Node)
 	for {
 		if _, err := api.Set(context.Background(), key, string(value), &client.SetOptions{TTL: time.Second * 10}); err != nil {
 			log.Printf("[MicroServer] Update server info:\n>>>> %v", err)
