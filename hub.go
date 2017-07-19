@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	HUB_NAME = "MICRO_HUB"
+	HUB_NAME   = "MICRO_HUB"
+	HUB_NOTIFY = "NOTIFY"
 )
 
 var (
-	SYMBOL_HUB uint64
+	SYMBOL_HUB    uint64
+	SYMBOL_NOTIFY uint64
 )
 
 type HubImpl struct {
@@ -27,8 +29,6 @@ type HubImpl struct {
 var HubInst = HubImpl{services: make(map[ruid.RUID]string)}
 
 func HubService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
-	ServerInst = server
-	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
 	return SYMBOL_HUB, &HubInst
 }
 

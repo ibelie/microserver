@@ -27,8 +27,6 @@ type GateImpl struct {
 var GateInst = GateImpl{services: make(map[ruid.RUID]string)}
 
 func GateService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
-	ServerInst = server
-	SYMBOL_GATE = addSymbol(symbols, GATE_NAME)
 	return SYMBOL_GATE, &GateInst
 }
 

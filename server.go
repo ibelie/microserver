@@ -85,6 +85,11 @@ func NewServer(address string, symbols map[string]uint64,
 		remote:  make(map[uint64]*ruid.Ring),
 		local:   make(map[uint64]rpc.Service),
 	}
+	SYMBOL_GATE = addSymbol(symbols, GATE_NAME)
+	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
+	SYMBOL_NOTIFY = addSymbol(symbols, HUB_NOTIFY)
+	ServerInst = server
+
 	for _, r := range rs {
 		i, c := r(server, symbols)
 		server.remote[i] = ruid.NewRing(address)
@@ -94,8 +99,8 @@ func NewServer(address string, symbols map[string]uint64,
 	return server
 }
 
-func (s *Server) Notify(i ruid.RUID, k ruid.RUID, t uint64, p []byte) (err error) {
-	_, err = s.Procedure(i, k, t, t, p)
+func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
+	_, err = s.Procedure(i, k, SYMBOL_HUB, SYMBOL_NOTIFY, p)
 	return
 }
 
