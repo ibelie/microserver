@@ -6,7 +6,13 @@ package microserver
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net"
+	"os"
+	"reflect"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +22,48 @@ import (
 	"github.com/ibelie/ruid"
 	"golang.org/x/net/context"
 )
+
+const BUFFER_SIZE = 4096
+
+const (
+	SYMBOL_CREATE uint64 = iota
+	SYMBOL_DESTROY
+	SYMBOL_SYNCHRON
+	SYMBOL_NOTIFY
+)
+
+// Copy from golang.org\x\net\http2\server.go
+func errno(v error) uintptr {
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Uintptr {
+		return uintptr(rv.Uint())
+	}
+	return 0
+}
+
+// Copy from golang.org\x\net\http2\server.go
+func isClosedConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	str := err.Error()
+	if strings.Contains(str, "use of closed network connection") {
+		return true
+	}
+
+	if runtime.GOOS == "windows" {
+		if oe, ok := err.(*net.OpError); ok && oe.Op == "read" {
+			if se, ok := oe.Err.(*os.SyscallError); ok && se.Syscall == "wsarecv" {
+				const WSAECONNABORTED = 10053
+				const WSAECONNRESET = 10054
+				if n := errno(se.Err); n == WSAECONNRESET || n == WSAECONNABORTED {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 type Node struct {
 	Address  string
@@ -54,10 +102,21 @@ func NewServer(address string, symbols map[string]uint64,
 }
 
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
+	if m == SYMBOL_NOTIFY {
+		p, err = s.Procedure(i, k, c, m, p)
+		if r != nil {
+			r <- p
+			close(r)
+		}
+		return
+	}
 	return
 }
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
+	if k == 0 {
+		k = i
+	}
 	return
 }
 
@@ -65,8 +124,81 @@ func (s *Server) Gate(address string) {
 
 }
 
-func (s *Server) Serve() {
+func (s *Server) handler(conn net.Conn) {
+	var id ruid.RUID
+	var service, method, length, step uint64
+	var data []byte
+	buffer := make([]byte, BUFFER_SIZE)
+	defer conn.Close()
+	for {
+		if n, err := conn.Read(buffer); err != nil {
+			if err == io.EOF || isClosedConnError(err) {
+				log.Printf("[MicroServer@%v] Connection lost:\n>>>>%v", s.Address, err)
+			} else if e, ok := err.(net.Error); ok && e.Timeout() {
+				log.Printf("[MicroServer@%v] Connection timeout:\n>>>>%v", s.Address, e)
+			} else {
+				log.Printf("[MicroServer@%v] Connection error:\n>>>>%v", s.Address, err)
+			}
+			return
+		} else {
+			data = append(data, buffer[:n]...)
+		}
+		for step < 4 {
+			var x, k uint64
+			for i, b := range data {
+				if b < 0x80 {
+					if i > 9 || i == 9 && b > 1 {
+						log.Printf("[MicroServer@%v] Protocol error: %v %v %v %v %v %v",
+							s.Address, data[:i], id, service, method, length, step)
+						return // overflow
+					}
+					x |= uint64(b) << k
+					data = data[i+1:]
+				}
+				x |= uint64(b&0x7f) << k
+				k += 7
+			}
+			switch step {
+			case 0:
+				id = ruid.RUID(x)
+			case 1:
+				service = x
+			case 2:
+				method = x
+			case 3:
+				length = x
+			}
+			step++
+		}
+		if step == 4 && uint64(len(data)) >= length {
+			param := data[:length]
+			data = data[length:]
+			if services, ok := s.local[service]; !ok {
+				log.Printf("[MicroServer@%v] Service (%d) not exists", s.Address, service)
+			} else if result, err := services.Procedure(id, method, param); err != nil {
+				log.Printf("[MicroServer@%v] Procedure error:\n>>>>%v", s.Address, err)
+			} else if _, err := conn.Write(result); err != nil {
+				log.Printf("[MicroServer@%v] Response error:\n>>>>%v", s.Address, err)
+			}
+			step = 0
+		}
+	}
+}
 
+func (s *Server) Serve() {
+	if lis, err := net.Listen("tcp", s.Address); err != nil {
+		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>>%v", s.Address, err)
+	} else {
+		defer lis.Close()
+		log.Printf("[MicroServer@%v] Waiting for clients...", s.Address)
+		for {
+			if conn, err := lis.Accept(); err != nil {
+				log.Printf("[MicroServer@%v] Accept error:\n>>>>%v", s.Address, err)
+			} else {
+				go s.handler(conn)
+			}
+		}
+	}
 }
 
 func (s *Server) Register(nodes ...*Node) {
