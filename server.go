@@ -28,7 +28,7 @@ type Server struct {
 	nodes   map[string]*Node
 	symbols map[string]uint64
 	routes  map[uint64]map[uint64]bool
-	remote  map[uint64]HashRing
+	remote  map[uint64]*ruid.Ring
 	local   map[uint64]rpc.Service
 }
 
@@ -41,12 +41,12 @@ func NewServer(address string, symbols map[string]uint64,
 		symbols: symbols,
 		routes:  routes,
 		nodes:   make(map[string]*Node),
-		remote:  make(map[uint64]HashRing),
+		remote:  make(map[uint64]*ruid.Ring),
 		local:   make(map[uint64]rpc.Service),
 	}
 	for _, r := range rs {
 		i, c := r(server, symbols)
-		server.remote[i] = HashRing([]string{address})
+		server.remote[i] = ruid.NewRing(address)
 		server.Services = append(server.Services, i)
 		server.local[i] = c
 	}
@@ -72,10 +72,10 @@ func (s *Server) Serve() {
 func (s *Server) Register(nodes ...*Node) {
 	for _, node := range nodes {
 		for _, service := range node.Services {
-			if hashring, ok := s.remote[service]; ok {
-				s.remote[service] = hashring.Append(node.Address)
+			if ring, ok := s.remote[service]; ok {
+				ring.Append(node.Address)
 			} else {
-				s.remote[service] = HashRing([]string{node.Address})
+				s.remote[service] = ruid.NewRing(node.Address)
 			}
 		}
 		s.nodes[node.Address] = node
@@ -102,10 +102,10 @@ func (s *Server) Add(key string, node *Node) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	for _, service := range node.Services {
-		if hashring, ok := s.remote[service]; ok {
-			s.remote[service] = hashring.Append(node.Address)
+		if ring, ok := s.remote[service]; ok {
+			ring.Append(node.Address)
 		} else {
-			s.remote[service] = HashRing([]string{node.Address})
+			s.remote[service] = ruid.NewRing(node.Address)
 		}
 	}
 	s.nodes[key] = node
@@ -116,7 +116,7 @@ func (s *Server) Remove(key string) {
 	defer s.mutex.Unlock()
 	if node, ok := s.nodes[key]; ok {
 		for _, service := range node.Services {
-			s.remote[service] = s.remote[service].Remove(node.Address)
+			s.remote[service].Remove(node.Address)
 		}
 	}
 	delete(s.nodes, key)
