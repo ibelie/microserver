@@ -25,13 +25,6 @@ import (
 
 const BUFFER_SIZE = 4096
 
-const (
-	SYMBOL_CREATE uint64 = iota
-	SYMBOL_DESTROY
-	SYMBOL_SYNCHRON
-	SYMBOL_NOTIFY
-)
-
 // Copy from golang.org\x\net\http2\server.go
 func errno(v error) uintptr {
 	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Uintptr {
@@ -101,15 +94,12 @@ func NewServer(address string, symbols map[string]uint64,
 	return server
 }
 
+func (s *Server) Notify(i ruid.RUID, k ruid.RUID, t uint64, p []byte) (err error) {
+	_, err = s.Procedure(i, k, t, t, p)
+	return
+}
+
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
-	if m == SYMBOL_NOTIFY {
-		p, err = s.Procedure(i, k, c, m, p)
-		if r != nil {
-			r <- p
-			close(r)
-		}
-		return
-	}
 	return
 }
 
