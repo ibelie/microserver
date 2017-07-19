@@ -8,6 +8,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/ibelie/rpc"
 	"github.com/ibelie/ruid"
 )
 
@@ -19,14 +20,14 @@ var (
 	SYMBOL_HUB uint64
 )
 
-type HubService struct {
+type HubImpl struct {
 	mutex    sync.Mutex
 	services map[ruid.RUID]string
 }
 
-var _HubService = HubService{services: make(map[ruid.RUID]string)}
+var HubInst = HubImpl{services: make(map[ruid.RUID]string)}
 
-func HubRegister(server IServer, symbols map[string]uint64) (uint64, *HubService) {
+func HubService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
 	if _, exist := symbols[HUB_NAME]; exist {
 		log.Fatalf("[Hub] Service '%s' already exists", HUB_NAME)
 	}
@@ -36,9 +37,11 @@ func HubRegister(server IServer, symbols map[string]uint64) (uint64, *HubService
 		}
 	}
 	symbols[HUB_NAME] = SYMBOL_HUB
-	return SYMBOL_HUB, &_HubService
+	ServerInst = server
+	Symbols = symbols
+	return SYMBOL_HUB, &HubInst
 }
 
-func (s *HubService) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
+func (s *HubImpl) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
 	return
 }

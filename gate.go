@@ -8,6 +8,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/ibelie/rpc"
 	"github.com/ibelie/ruid"
 )
 
@@ -19,14 +20,14 @@ var (
 	SYMBOL_GATE uint64
 )
 
-type GateService struct {
+type GateImpl struct {
 	mutex    sync.Mutex
 	services map[ruid.RUID]string
 }
 
-var _GateService = GateService{services: make(map[ruid.RUID]string)}
+var GateInst = GateImpl{services: make(map[ruid.RUID]string)}
 
-func GateRegister(server IServer, symbols map[string]uint64) (uint64, *GateService) {
+func GateService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
 	if _, exist := symbols[GATE_NAME]; exist {
 		log.Fatalf("[Gate] Service '%s' already exists", GATE_NAME)
 	}
@@ -36,9 +37,11 @@ func GateRegister(server IServer, symbols map[string]uint64) (uint64, *GateServi
 		}
 	}
 	symbols[GATE_NAME] = SYMBOL_GATE
-	return SYMBOL_GATE, &_GateService
+	ServerInst = server
+	Symbols = symbols
+	return SYMBOL_GATE, &GateInst
 }
 
-func (s *GateService) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
+func (s *GateImpl) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
 	return
 }

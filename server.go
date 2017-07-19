@@ -12,6 +12,7 @@ import (
 
 	"encoding/json"
 	"github.com/coreos/etcd/client"
+	"github.com/ibelie/rpc"
 	"github.com/ibelie/ruid"
 	"golang.org/x/net/context"
 )
@@ -21,17 +22,6 @@ type Node struct {
 	Services []uint64
 }
 
-type Service interface {
-	Procedure(ruid.RUID, uint64, []byte) ([]byte, error)
-}
-
-type IServer interface {
-	Distribute(ruid.RUID, ruid.RUID, uint64, uint64, []byte, chan<- []byte) error
-	Procedure(ruid.RUID, ruid.RUID, uint64, uint64, []byte) ([]byte, error)
-}
-
-type Register func(IServer, map[string]uint64) (uint64, Service)
-
 type Server struct {
 	Node
 	mutex   sync.Mutex
@@ -39,17 +29,23 @@ type Server struct {
 	symbols map[string]uint64
 	routes  map[uint64]map[uint64]bool
 	remote  map[uint64]HashRing
-	local   map[uint64]Service
+	local   map[uint64]rpc.Service
 }
 
-func NewServer(address string, symbols map[string]uint64, routes map[uint64]map[uint64]bool, rs ...Register) {
+var (
+	ServerInst rpc.IServer
+	Symbols    map[string]uint64
+)
+
+func NewServer(address string, symbols map[string]uint64,
+	routes map[uint64]map[uint64]bool, rs ...rpc.Register) *Server {
 	server := &Server{
 		Node:    Node{Address: address},
 		symbols: symbols,
 		routes:  routes,
 		nodes:   make(map[string]*Node),
 		remote:  make(map[uint64]HashRing),
-		local:   make(map[uint64]Service),
+		local:   make(map[uint64]rpc.Service),
 	}
 	for _, r := range rs {
 		i, c := r(server, symbols)
@@ -57,6 +53,7 @@ func NewServer(address string, symbols map[string]uint64, routes map[uint64]map[
 		server.Services = append(server.Services, i)
 		server.local[i] = c
 	}
+	return server
 }
 
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
