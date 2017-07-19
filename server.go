@@ -68,6 +68,7 @@ type Server struct {
 	mutex   sync.Mutex
 	nodes   map[string]*Node
 	symbols map[string]uint64
+	symdict map[uint64]string
 	routes  map[uint64]map[uint64]bool
 	remote  map[uint64]*ruid.Ring
 	local   map[uint64]rpc.Service
@@ -81,6 +82,7 @@ func NewServer(address string, symbols map[string]uint64,
 		Node:    Node{Address: address},
 		symbols: symbols,
 		routes:  routes,
+		symdict: make(map[uint64]string),
 		nodes:   make(map[string]*Node),
 		remote:  make(map[uint64]*ruid.Ring),
 		local:   make(map[uint64]rpc.Service),
@@ -88,6 +90,9 @@ func NewServer(address string, symbols map[string]uint64,
 	SYMBOL_GATE = addSymbol(symbols, GATE_NAME)
 	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
 	SYMBOL_NOTIFY = addSymbol(symbols, HUB_NOTIFY)
+	for symbol, value := range symbols {
+		server.symdict[value] = symbol
+	}
 	ServerInst = server
 
 	for _, r := range rs {
@@ -105,6 +110,32 @@ func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
 }
 
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
+	routes, ok := s.routes[t]
+	if !ok {
+		return fmt.Errorf("[MicroServer] Distribute unknown entity type: %s(%d)", s.symdict[t], t)
+	}
+	var es []error
+	for c, ok := range routes {
+		if cs, exist := s.routes[m]; exist {
+			if ok, exist := cs[c]; !ok || !exist {
+				continue
+			}
+		}
+		if !ok {
+			continue
+		} else if d, e := s.Procedure(i, k, c, m, p); e != nil {
+			es = append(es, e)
+		} else if r != nil {
+			r <- d
+		}
+	}
+	if len(es) > 0 {
+		var errors []string
+		for _, e := range es {
+			errors = append(errors, fmt.Sprintf("\n>>>>%v", e))
+		}
+		err = fmt.Errorf("[MicroServer] Distribute errors:%s", strings.Join(errors, ""))
+	}
 	return
 }
 
@@ -169,7 +200,7 @@ func (s *Server) handler(conn net.Conn) {
 			param := data[:length]
 			data = data[length:]
 			if services, ok := s.local[service]; !ok {
-				log.Printf("[MicroServer@%v] Service (%d) not exists", s.Address, service)
+				log.Printf("[MicroServer@%v] Service %s(%d) not exists", s.Address, s.symdict[service], service)
 			} else if result, err := services.Procedure(id, method, param); err != nil {
 				log.Printf("[MicroServer@%v] Procedure error:\n>>>>%v", s.Address, err)
 			} else if _, err := conn.Write(result); err != nil {
