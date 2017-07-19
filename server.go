@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"encoding/binary"
 	"encoding/json"
 	"github.com/coreos/etcd/client"
 	"github.com/ibelie/rpc"
@@ -23,7 +24,11 @@ import (
 	"golang.org/x/net/context"
 )
 
-const BUFFER_SIZE = 4096
+const (
+	READ_DEADLINE  = 30
+	WRITE_DEADLINE = 5
+	BUFFER_SIZE    = 4096
+)
 
 // Copy from golang.org\x\net\http2\server.go
 func errno(v error) uintptr {
@@ -66,24 +71,37 @@ type Node struct {
 type Server struct {
 	Node
 	mutex   sync.Mutex
-	nodes   map[string]*Node
+	routes  map[uint64]map[uint64]bool
 	symbols map[string]uint64
 	symdict map[uint64]string
-	routes  map[uint64]map[uint64]bool
+	nodes   map[string]*Node
+	conns   map[string]*sync.Pool
 	remote  map[uint64]*ruid.Ring
 	local   map[uint64]rpc.Service
 }
 
 var ServerInst rpc.IServer
 
+func NewConn(address string) func() interface{} {
+	return func() interface{} {
+		if conn, err := net.DialTimeout("tcp", address, 5*time.Second); err != nil {
+			log.Printf("[MicroServer] Connection failed:\n>>>>%v", address, err)
+			return nil
+		} else {
+			return conn
+		}
+	}
+}
+
 func NewServer(address string, symbols map[string]uint64,
 	routes map[uint64]map[uint64]bool, rs ...rpc.Register) *Server {
 	server := &Server{
 		Node:    Node{Address: address},
-		symbols: symbols,
 		routes:  routes,
+		symbols: symbols,
 		symdict: make(map[uint64]string),
 		nodes:   make(map[string]*Node),
+		conns:   make(map[string]*sync.Pool),
 		remote:  make(map[uint64]*ruid.Ring),
 		local:   make(map[uint64]rpc.Service),
 	}
@@ -97,8 +115,8 @@ func NewServer(address string, symbols map[string]uint64,
 
 	for _, r := range rs {
 		i, c := r(server, symbols)
-		server.remote[i] = ruid.NewRing(address)
 		server.Services = append(server.Services, i)
+		server.remote[i] = ruid.NewRing(address)
 		server.local[i] = c
 	}
 	return server
@@ -112,7 +130,7 @@ func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
 	routes, ok := s.routes[t]
 	if !ok {
-		return fmt.Errorf("[MicroServer] Distribute unknown entity type: %s(%d)", s.symdict[t], t)
+		return fmt.Errorf("[MicroServer@%v] Distribute unknown entity type: %s(%d)", s.Address, s.symdict[t], t)
 	}
 	var es []error
 	for c, ok := range routes {
@@ -134,15 +152,103 @@ func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []by
 		for _, e := range es {
 			errors = append(errors, fmt.Sprintf("\n>>>>%v", e))
 		}
-		err = fmt.Errorf("[MicroServer] Distribute errors:%s", strings.Join(errors, ""))
+		err = fmt.Errorf("[MicroServer@%v] Distribute errors:%s", s.Address, strings.Join(errors, ""))
 	}
 	return
 }
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
+	var node string
 	if k == 0 {
 		k = i
 	}
+
+	if ring, ok := s.remote[c]; !ok {
+		err = fmt.Errorf("[MicroServer@%v] Procedure unknown service type: %s(%d)", s.Address, s.symdict[c], c)
+		return
+	} else if node, ok = ring.Get(k); !ok {
+		err = fmt.Errorf("[MicroServer@%v] Procedure no service found: %s(%d) %v %v", s.Address, s.symdict[c], c, s.Node, s.nodes)
+		return
+	}
+
+	if _, ok := s.conns[node]; !ok {
+		s.mutex.Lock()
+		s.conns[node] = &sync.Pool{New: NewConn(node)}
+		s.mutex.Unlock()
+	}
+
+	var n int
+	var length uint64
+	var hasLength bool
+	var header [binary.MaxVarintLen64 * 4]byte
+	var buffer [BUFFER_SIZE]byte
+	buflen := binary.PutUvarint(header[:], uint64(i))
+	buflen += binary.PutUvarint(header[buflen:], c)
+	buflen += binary.PutUvarint(header[buflen:], m)
+	buflen += binary.PutUvarint(header[buflen:], uint64(len(p)))
+	param := append(header[:buflen], p...)
+
+	for j := 0; j < 3; j++ {
+		if o := s.conns[node].Get(); o == nil {
+			continue
+		} else if conn, ok := o.(net.Conn); !ok {
+			log.Printf("[MicroServer@%v] Connection pool type error: %v", s.Address, o)
+			continue
+		} else if err = conn.SetWriteDeadline(time.Now().Add(time.Second * WRITE_DEADLINE)); err != nil {
+		} else if _, err = conn.Write(param); err != nil {
+		} else {
+			var result []byte
+			for {
+				if n, err = conn.Read(buffer[:]); err != nil {
+					if err == io.EOF || isClosedConnError(err) {
+						log.Printf("[MicroServer@%v] Request lost:\n>>>>%v", s.Address, err)
+					} else if e, ok := err.(net.Error); ok && e.Timeout() {
+						log.Printf("[MicroServer@%v] Request timeout:\n>>>>%v", s.Address, e)
+					} else {
+						log.Printf("[MicroServer@%v] Request error:\n>>>>%v", s.Address, err)
+					}
+					return
+				} else {
+					result = append(result, buffer[:n]...)
+				}
+				if !hasLength {
+					length = 0
+					var k uint
+					for l, b := range result {
+						if b < 0x80 {
+							if l > 9 || l == 9 && b > 1 {
+								err = fmt.Errorf("[MicroServer@%v] Response protocol error: %v %v",
+									s.Address, result[:l], length)
+								return
+							}
+							length |= uint64(b) << k
+							result = result[l+1:]
+						}
+						length |= uint64(b&0x7f) << k
+						k += 7
+					}
+					hasLength = true
+				}
+				if hasLength && uint64(len(result)) >= length {
+					if r = result[:length]; uint64(len(result)) > length {
+						log.Printf("[MicroServer@%v] Ignore response data: %v", s.Address, result)
+					}
+					break
+				}
+			}
+			s.conns[node].Put(conn)
+			break
+		}
+
+		if err != nil {
+			if err == io.EOF || isClosedConnError(err) {
+			} else if e, ok := err.(net.Error); ok && e.Timeout() {
+			} else {
+				log.Printf("[MicroServer@%v] Procedure retry:\n>>>>%v", s.Address, err)
+			}
+		}
+	}
+
 	return
 }
 
@@ -154,10 +260,12 @@ func (s *Server) handler(conn net.Conn) {
 	var id ruid.RUID
 	var service, method, length, step uint64
 	var data []byte
-	buffer := make([]byte, BUFFER_SIZE)
+	var lenBuf [binary.MaxVarintLen64]byte
+	var buffer [BUFFER_SIZE]byte
 	defer conn.Close()
 	for {
-		if n, err := conn.Read(buffer); err != nil {
+		conn.SetReadDeadline(time.Now().Add(time.Second * READ_DEADLINE))
+		if n, err := conn.Read(buffer[:]); err != nil {
 			if err == io.EOF || isClosedConnError(err) {
 				log.Printf("[MicroServer@%v] Connection lost:\n>>>>%v", s.Address, err)
 			} else if e, ok := err.(net.Error); ok && e.Timeout() {
@@ -174,7 +282,7 @@ func (s *Server) handler(conn net.Conn) {
 			for i, b := range data {
 				if b < 0x80 {
 					if i > 9 || i == 9 && b > 1 {
-						log.Printf("[MicroServer@%v] Protocol error: %v %v %v %v %v %v",
+						log.Printf("[MicroServer@%v] Request protocol error: %v %v %v %v %v %v",
 							s.Address, data[:i], id, service, method, length, step)
 						return // overflow
 					}
@@ -203,7 +311,7 @@ func (s *Server) handler(conn net.Conn) {
 				log.Printf("[MicroServer@%v] Service %s(%d) not exists", s.Address, s.symdict[service], service)
 			} else if result, err := services.Procedure(id, method, param); err != nil {
 				log.Printf("[MicroServer@%v] Procedure error:\n>>>>%v", s.Address, err)
-			} else if _, err := conn.Write(result); err != nil {
+			} else if _, err := conn.Write(append(lenBuf[:binary.PutUvarint(lenBuf[:], uint64(len(result)))], result...)); err != nil {
 				log.Printf("[MicroServer@%v] Response error:\n>>>>%v", s.Address, err)
 			}
 			step = 0
@@ -252,7 +360,7 @@ func (s *Server) Discover(ip string, port int, namespace string) {
 		go s.keep(namespace, api)
 		go s.watch(namespace, api)
 	} else {
-		log.Fatalf("[MicroServer] Cannot connect to etcd:\n>>>>%v", err)
+		log.Fatalf("[MicroServer@%v] Cannot connect to etcd:\n>>>>%v", s.Address, err)
 	}
 }
 
@@ -285,7 +393,7 @@ func (s *Server) keep(namespace string, api client.KeysAPI) {
 	value, _ := json.Marshal(&s.Node)
 	for {
 		if _, err := api.Set(context.Background(), key, string(value), &client.SetOptions{TTL: time.Second * 10}); err != nil {
-			log.Printf("[MicroServer] Update server info:\n>>>> %v", err)
+			log.Printf("[MicroServer@%v] Update server info:\n>>>> %v", s.Address, err)
 		}
 		time.Sleep(time.Second * 3)
 	}
@@ -300,13 +408,13 @@ func (s *Server) watch(namespace string, api client.KeysAPI) {
 			} else if res.Action == "set" || res.Action == "update" {
 				node := new(Node)
 				if err := json.Unmarshal([]byte(res.Node.Value), node); err != nil {
-					log.Printf("[MicroServer] Parse node value:\n>>>> %v", err)
+					log.Printf("[MicroServer@%v] Parse node value:\n>>>> %v", s.Address, err)
 					break
 				}
 				s.Add(res.Node.Key, node)
 			}
 		} else {
-			log.Printf("[MicroServer] Watch servers:\n>>>> %v", err)
+			log.Printf("[MicroServer@%v] Watch servers:\n>>>> %v", s.Address, err)
 		}
 	}
 }
