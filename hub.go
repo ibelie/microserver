@@ -12,13 +12,17 @@ import (
 )
 
 const (
-	HUB_NAME   = "MICRO_HUB"
-	HUB_NOTIFY = "NOTIFY"
+	HUB_NAME    = "MICRO_HUB"
+	HUB_NOTIFY  = "NOTIFY"
+	HUB_OBSERVE = "OBSERVE"
+	HUB_IGNORE  = "IGNORE"
 )
 
 var (
-	SYMBOL_HUB    uint64
-	SYMBOL_NOTIFY uint64
+	SYMBOL_HUB     uint64
+	SYMBOL_NOTIFY  uint64
+	SYMBOL_OBSERVE uint64
+	SYMBOL_IGNORE  uint64
 )
 
 type HubImpl struct {
@@ -33,5 +37,10 @@ func HubService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Serv
 }
 
 func (s *HubImpl) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
+	switch method {
+	case SYMBOL_NOTIFY:
+	case SYMBOL_OBSERVE:
+	case SYMBOL_IGNORE:
+	}
 	return
 }

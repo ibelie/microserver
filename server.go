@@ -108,6 +108,8 @@ func NewServer(address string, symbols map[string]uint64,
 	SYMBOL_GATE = addSymbol(symbols, GATE_NAME)
 	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
 	SYMBOL_NOTIFY = addSymbol(symbols, HUB_NOTIFY)
+	SYMBOL_OBSERVE = addSymbol(symbols, HUB_OBSERVE)
+	SYMBOL_IGNORE = addSymbol(symbols, HUB_IGNORE)
 	for symbol, value := range symbols {
 		server.symdict[value] = symbol
 	}
@@ -168,6 +170,13 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 		return
 	} else if node, ok = ring.Get(k); !ok {
 		err = fmt.Errorf("[MicroServer@%v] Procedure no service found: %s(%d) %v %v", s.Address, s.symdict[c], c, s.Node, s.nodes)
+		return
+	} else if node == s.Address {
+		if service, ok := s.local[c]; !ok {
+			err = fmt.Errorf("[MicroServer@%v] Procedure no local service found: %s(%d) %v %v", s.Address, s.symdict[c], c, s.Node, s.local)
+		} else {
+			r, err = service.Procedure(i, m, p)
+		}
 		return
 	}
 
