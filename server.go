@@ -32,10 +32,7 @@ type Server struct {
 	local   map[uint64]rpc.Service
 }
 
-var (
-	ServerInst rpc.IServer
-	Symbols    map[string]uint64
-)
+var ServerInst rpc.IServer
 
 func NewServer(address string, symbols map[string]uint64,
 	routes map[uint64]map[uint64]bool, rs ...rpc.Register) *Server {
@@ -62,6 +59,10 @@ func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []by
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
 	return
+}
+
+func (s *Server) Gate(address string) {
+
 }
 
 func (s *Server) Serve() {

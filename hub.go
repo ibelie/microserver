@@ -38,7 +38,6 @@ func HubService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Serv
 	}
 	symbols[HUB_NAME] = SYMBOL_HUB
 	ServerInst = server
-	Symbols = symbols
 	return SYMBOL_HUB, &HubInst
 }
 

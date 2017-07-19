@@ -38,7 +38,6 @@ func GateService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Ser
 	}
 	symbols[GATE_NAME] = SYMBOL_GATE
 	ServerInst = server
-	Symbols = symbols
 	return SYMBOL_GATE, &GateInst
 }
 
