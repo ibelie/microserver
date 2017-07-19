@@ -5,7 +5,6 @@
 package microserver
 
 import (
-	"log"
 	"sync"
 
 	"github.com/ibelie/rpc"
@@ -28,16 +27,8 @@ type HubImpl struct {
 var HubInst = HubImpl{services: make(map[ruid.RUID]string)}
 
 func HubService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
-	if _, exist := symbols[HUB_NAME]; exist {
-		log.Fatalf("[Hub] Service '%s' already exists", HUB_NAME)
-	}
-	for _, s := range symbols {
-		if SYMBOL_HUB <= s {
-			SYMBOL_HUB = s + 1
-		}
-	}
-	symbols[HUB_NAME] = SYMBOL_HUB
 	ServerInst = server
+	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
 	return SYMBOL_HUB, &HubInst
 }
 

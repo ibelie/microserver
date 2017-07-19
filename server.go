@@ -152,3 +152,16 @@ func (s *Server) watch(namespace string, api client.KeysAPI) {
 		}
 	}
 }
+
+func addSymbol(symbols map[string]uint64, name string) (symbol uint64) {
+	if _, exist := symbols[name]; exist {
+		log.Fatalf("[MicroServer] Symbol '%s' already exists", name)
+	}
+	for _, s := range symbols {
+		if symbol <= s {
+			symbol = s + 1
+		}
+	}
+	symbols[name] = symbol
+	return
+}
