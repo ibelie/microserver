@@ -30,7 +30,7 @@ type IServer interface {
 	Procedure(ruid.RUID, ruid.RUID, uint64, uint64, []byte) ([]byte, error)
 }
 
-type Register func(IServer, map[string]uint64) Service
+type Register func(IServer, map[string]uint64) (uint64, Service)
 
 type Server struct {
 	Node
@@ -44,7 +44,7 @@ type Server struct {
 
 func NewServer(address string, symbols map[string]uint64, routes map[uint64]map[uint64]bool, rs ...Register) {
 	server := &Server{
-		Address: address,
+		Node:    Node{Address: address},
 		symbols: symbols,
 		routes:  routes,
 		nodes:   make(map[string]*Node),
@@ -52,19 +52,19 @@ func NewServer(address string, symbols map[string]uint64, routes map[uint64]map[
 		local:   make(map[uint64]Service),
 	}
 	for _, r := range rs {
-		i, c := r(s, symbols)
-		s.remote[i] = HashRing([]string{address})
-		s.Services = append(s.Services, i)
-		s.local[i] = c
+		i, c := r(server, symbols)
+		server.remote[i] = HashRing([]string{address})
+		server.Services = append(server.Services, i)
+		server.local[i] = c
 	}
 }
 
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
-
+	return
 }
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
-
+	return
 }
 
 func (s *Server) Serve() {
@@ -93,8 +93,8 @@ func (s *Server) Discover(ip string, port int, namespace string) {
 
 	if c, err := client.New(cfg); err == nil {
 		api := client.NewKeysAPI(c)
-		go server.keep(namespace, api)
-		go server.watch(namespace, api)
+		go s.keep(namespace, api)
+		go s.watch(namespace, api)
 	} else {
 		log.Fatalf("[MicroServer] Cannot connect to etcd:\n>>>>%v", err)
 	}
@@ -125,7 +125,7 @@ func (s *Server) Remove(key string) {
 }
 
 func (s *Server) keep(namespace string, api client.KeysAPI) {
-	key := namespace + address
+	key := namespace + s.Address
 	value, _ := json.Marshal(&s.Node)
 	for {
 		if _, err := api.Set(context.Background(), key, string(value), &client.SetOptions{TTL: time.Second * 10}); err != nil {

@@ -6,6 +6,7 @@ package microserver
 
 import (
 	"log"
+	"sync"
 
 	"github.com/ibelie/ruid"
 )
@@ -35,8 +36,9 @@ func GateRegister(server IServer, symbols map[string]uint64) (uint64, *GateServi
 		}
 	}
 	symbols[GATE_NAME] = SYMBOL_GATE
-	return SYMBOL_GATE, _GateService
+	return SYMBOL_GATE, &_GateService
 }
 
 func (s *GateService) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
+	return
 }

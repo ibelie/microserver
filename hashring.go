@@ -4,17 +4,6 @@
 
 package microserver
 
-import (
-	"fmt"
-	"log"
-	"sync"
-	"time"
-
-	"encoding/json"
-	"github.com/coreos/etcd/client"
-	"golang.org/x/net/context"
-)
-
 type HashRing []string
 
 func (h HashRing) Append(node string) HashRing {

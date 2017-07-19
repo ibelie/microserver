@@ -6,6 +6,7 @@ package microserver
 
 import (
 	"log"
+	"sync"
 
 	"github.com/ibelie/ruid"
 )
@@ -35,8 +36,9 @@ func HubRegister(server IServer, symbols map[string]uint64) (uint64, *HubService
 		}
 	}
 	symbols[HUB_NAME] = SYMBOL_HUB
-	return SYMBOL_HUB, _HubService
+	return SYMBOL_HUB, &_HubService
 }
 
 func (s *HubService) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {
+	return
 }
