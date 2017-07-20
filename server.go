@@ -81,7 +81,7 @@ type Server struct {
 	local   map[uint64]rpc.Service
 }
 
-var ServerInst rpc.IServer
+var ServerInst *Server
 
 func NewServer(address string, symbols map[string]uint64,
 	routes map[uint64]map[uint64]bool, rs ...rpc.Register) *Server {
@@ -113,6 +113,7 @@ func NewServer(address string, symbols map[string]uint64,
 	SYMBOL_NOTIFY = addSymbol(HUB_NOTIFY)
 	SYMBOL_IGNORE = addSymbol(HUB_IGNORE)
 	SYMBOL_OBSERVE = addSymbol(HUB_OBSERVE)
+	SYMBOL_SESSION = symbols[GATE_SESSION]
 
 	for symbol, value := range symbols {
 		server.symdict[value] = symbol
@@ -145,7 +146,6 @@ func (s *Server) Serve() {
 }
 
 func (s *Server) Gate(address string, gate func(string, func(Gate))) {
-	GateInst.address = address
 	gate(address, GateInst.handler)
 }
 
@@ -154,34 +154,29 @@ func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
 	return
 }
 
-func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) (err error) {
+func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) error {
 	routes, ok := s.routes[t]
 	if !ok {
 		return fmt.Errorf("[MicroServer@%v] Distribute unknown entity type: %s(%d)", s.Address, s.symdict[t], t)
 	}
-	var es []error
-	for c, ok := range routes {
-		if cs, exist := s.routes[m]; exist {
-			if ok, exist := cs[c]; !ok || !exist {
+	go func() {
+		for c, ok := range routes {
+			if cs, exist := s.routes[m]; exist {
+				if ok, exist := cs[c]; !ok || !exist {
+					continue
+				}
+			}
+			if !ok {
 				continue
+			} else if d, e := s.Procedure(i, k, c, m, p); e != nil {
+				log.Printf("[MicroServer@%v] Distribute error:\n>>>>%v", s.Address, e)
+			} else if r != nil {
+				r <- d
 			}
 		}
-		if !ok {
-			continue
-		} else if d, e := s.Procedure(i, k, c, m, p); e != nil {
-			es = append(es, e)
-		} else if r != nil {
-			r <- d
-		}
-	}
-	if len(es) > 0 {
-		var errors []string
-		for _, e := range es {
-			errors = append(errors, fmt.Sprintf("\n>>>>%v", e))
-		}
-		err = fmt.Errorf("[MicroServer@%v] Distribute errors:%s", s.Address, strings.Join(errors, ""))
-	}
-	return
+		close(r)
+	}()
+	return nil
 }
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
@@ -376,12 +371,12 @@ func (s *Server) Discover(ip string, port int, namespace string) {
 		HeaderTimeoutPerRequest: time.Second,
 	}
 
-	if c, err := client.New(cfg); err == nil {
+	if c, err := client.New(cfg); err != nil {
+		log.Fatalf("[MicroServer@%v] Cannot connect to etcd:\n>>>>%v", s.Address, err)
+	} else {
 		api := client.NewKeysAPI(c)
 		go s.keep(namespace, api)
 		go s.watch(namespace, api)
-	} else {
-		log.Fatalf("[MicroServer@%v] Cannot connect to etcd:\n>>>>%v", s.Address, err)
 	}
 }
 
