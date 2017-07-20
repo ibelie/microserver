@@ -5,6 +5,7 @@
 package microserver
 
 import (
+	"log"
 	"sync"
 
 	"github.com/ibelie/rpc"
@@ -19,15 +20,36 @@ var (
 	SYMBOL_GATE uint64
 )
 
-type GateImpl struct {
-	mutex    sync.Mutex
-	services map[ruid.RUID]string
+type Gate interface {
+	Address() string
+	Send([]byte) error
+	Receive() ([]byte, error)
+	Close() error
 }
 
-var GateInst = GateImpl{services: make(map[ruid.RUID]string)}
+type GateImpl struct {
+	mutex    sync.Mutex
+	address  string
+	services map[ruid.RUID]Gate
+}
+
+var GateInst = GateImpl{services: make(map[ruid.RUID]Gate)}
 
 func GateService(server rpc.IServer, symbols map[string]uint64) (uint64, rpc.Service) {
 	return SYMBOL_GATE, &GateInst
+}
+
+func (s *GateImpl) handler(conn Gate) {
+	GateInst.mutex.Lock()
+
+	GateInst.mutex.Unlock()
+	for {
+		if _, err := conn.Receive(); err != nil {
+			log.Fatalf("[Gate@%v] Receive error %s:\n>>>>%v", s.address, conn.Address(), err)
+		} else {
+
+		}
+	}
 }
 
 func (s *GateImpl) Procedure(i ruid.RUID, method uint64, param []byte) (result []byte, err error) {

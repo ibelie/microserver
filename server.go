@@ -83,17 +83,6 @@ type Server struct {
 
 var ServerInst rpc.IServer
 
-func NewConn(address string) func() interface{} {
-	return func() interface{} {
-		if conn, err := net.DialTimeout("tcp", address, CONN_DEADLINE*time.Second); err != nil {
-			log.Printf("[MicroServer] Connection failed:\n>>>>%v", address, err)
-			return nil
-		} else {
-			return conn
-		}
-	}
-}
-
 func NewServer(address string, symbols map[string]uint64,
 	routes map[uint64]map[uint64]bool, rs ...rpc.Register) *Server {
 	server := &Server{
@@ -106,11 +95,25 @@ func NewServer(address string, symbols map[string]uint64,
 		remote:  make(map[uint64]*ruid.Ring),
 		local:   make(map[uint64]rpc.Service),
 	}
-	SYMBOL_GATE = addSymbol(symbols, GATE_NAME)
-	SYMBOL_HUB = addSymbol(symbols, HUB_NAME)
-	SYMBOL_NOTIFY = addSymbol(symbols, HUB_NOTIFY)
-	SYMBOL_OBSERVE = addSymbol(symbols, HUB_OBSERVE)
-	SYMBOL_IGNORE = addSymbol(symbols, HUB_IGNORE)
+
+	addSymbol := func(name string) (symbol uint64) {
+		if _, exist := symbols[name]; exist {
+			log.Fatalf("[MicroServer@%v] Symbol '%s' already exists", address, name)
+		}
+		for _, s := range symbols {
+			if symbol <= s {
+				symbol = s + 1
+			}
+		}
+		symbols[name] = symbol
+		return
+	}
+	SYMBOL_HUB = addSymbol(HUB_NAME)
+	SYMBOL_GATE = addSymbol(GATE_NAME)
+	SYMBOL_NOTIFY = addSymbol(HUB_NOTIFY)
+	SYMBOL_IGNORE = addSymbol(HUB_IGNORE)
+	SYMBOL_OBSERVE = addSymbol(HUB_OBSERVE)
+
 	for symbol, value := range symbols {
 		server.symdict[value] = symbol
 	}
@@ -123,6 +126,27 @@ func NewServer(address string, symbols map[string]uint64,
 		server.local[i] = c
 	}
 	return server
+}
+
+func (s *Server) Serve() {
+	if lis, err := net.Listen("tcp", s.Address); err != nil {
+		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>>%v", s.Address, err)
+	} else {
+		defer lis.Close()
+		log.Printf("[MicroServer@%v] Waiting for clients...", s.Address)
+		for {
+			if conn, err := lis.Accept(); err != nil {
+				log.Printf("[MicroServer@%v] Accept error:\n>>>>%v", s.Address, err)
+			} else {
+				go s.handler(conn)
+			}
+		}
+	}
+}
+
+func (s *Server) Gate(address string, gate func(string, func(Gate))) {
+	GateInst.address = address
+	gate(address, GateInst.handler)
 }
 
 func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
@@ -183,7 +207,14 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 
 	if _, ok := s.conns[node]; !ok {
 		s.mutex.Lock()
-		s.conns[node] = &sync.Pool{New: NewConn(node)}
+		s.conns[node] = &sync.Pool{New: func() interface{} {
+			if conn, err := net.DialTimeout("tcp", node, CONN_DEADLINE*time.Second); err != nil {
+				log.Printf("[MicroServer@%v] Connection failed: %s\n>>>>%v", s.Address, node, err)
+				return nil
+			} else {
+				return conn
+			}
+		}}
 		s.mutex.Unlock()
 	}
 
@@ -233,11 +264,11 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 							}
 							length |= uint64(b) << k
 							result = result[l+1:]
+							hasLength = true
 						}
 						length |= uint64(b&0x7f) << k
 						k += 7
 					}
-					hasLength = true
 				}
 				if hasLength && uint64(len(result)) >= length {
 					if r = result[:length]; uint64(len(result)) > length {
@@ -260,10 +291,6 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 	}
 
 	return
-}
-
-func (s *Server) Gate(address string) {
-
 }
 
 func (s *Server) handler(conn net.Conn) {
@@ -298,21 +325,21 @@ func (s *Server) handler(conn net.Conn) {
 					}
 					x |= uint64(b) << k
 					data = data[i+1:]
+					switch step {
+					case 0:
+						id = ruid.RUID(x)
+					case 1:
+						service = x
+					case 2:
+						method = x
+					case 3:
+						length = x
+					}
+					step++
 				}
 				x |= uint64(b&0x7f) << k
 				k += 7
 			}
-			switch step {
-			case 0:
-				id = ruid.RUID(x)
-			case 1:
-				service = x
-			case 2:
-				method = x
-			case 3:
-				length = x
-			}
-			step++
 		}
 		if step == 4 && uint64(len(data)) >= length {
 			param := data[:length]
@@ -325,22 +352,6 @@ func (s *Server) handler(conn net.Conn) {
 				log.Printf("[MicroServer@%v] Response error:\n>>>>%v", s.Address, err)
 			}
 			step = 0
-		}
-	}
-}
-
-func (s *Server) Serve() {
-	if lis, err := net.Listen("tcp", s.Address); err != nil {
-		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>>%v", s.Address, err)
-	} else {
-		defer lis.Close()
-		log.Printf("[MicroServer@%v] Waiting for clients...", s.Address)
-		for {
-			if conn, err := lis.Accept(); err != nil {
-				log.Printf("[MicroServer@%v] Accept error:\n>>>>%v", s.Address, err)
-			} else {
-				go s.handler(conn)
-			}
 		}
 	}
 }
@@ -427,17 +438,4 @@ func (s *Server) watch(namespace string, api client.KeysAPI) {
 			log.Printf("[MicroServer@%v] Watch servers:\n>>>> %v", s.Address, err)
 		}
 	}
-}
-
-func addSymbol(symbols map[string]uint64, name string) (symbol uint64) {
-	if _, exist := symbols[name]; exist {
-		log.Fatalf("[MicroServer] Symbol '%s' already exists", name)
-	}
-	for _, s := range symbols {
-		if symbol <= s {
-			symbol = s + 1
-		}
-	}
-	symbols[name] = symbol
-	return
 }
