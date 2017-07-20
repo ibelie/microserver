@@ -25,6 +25,7 @@ import (
 )
 
 const (
+	CONN_DEADLINE  = 5
 	READ_DEADLINE  = 30
 	WRITE_DEADLINE = 5
 	BUFFER_SIZE    = 4096
@@ -84,7 +85,7 @@ var ServerInst rpc.IServer
 
 func NewConn(address string) func() interface{} {
 	return func() interface{} {
-		if conn, err := net.DialTimeout("tcp", address, 5*time.Second); err != nil {
+		if conn, err := net.DialTimeout("tcp", address, CONN_DEADLINE*time.Second); err != nil {
 			log.Printf("[MicroServer] Connection failed:\n>>>>%v", address, err)
 			return nil
 		} else {
