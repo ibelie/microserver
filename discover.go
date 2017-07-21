@@ -32,7 +32,7 @@ func Discover(s rpc.Server, etcd string, namespace string) {
 
 func keep(s rpc.Server, namespace string, api client.KeysAPI) {
 	key := namespace + s.Address()
-	value, _ := json.Marshal(s.Node())
+	value, _ := json.Marshal(s.GetNode())
 	for {
 		if _, err := api.Set(context.Background(), key, string(value), &client.SetOptions{TTL: time.Second * 10}); err != nil {
 			log.Printf("[MicroServer@%v] Update server info:\n>>>> %v", s.Address(), err)

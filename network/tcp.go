@@ -77,7 +77,7 @@ func (s *Server) Serve() {
 func (s *Server) request(node string, i ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
 	if node == s.Address() {
 		if service, ok := s.local[c]; !ok {
-			err = fmt.Errorf("[Request] No local service found: %s(%d) %v %v", s.symdict[c], c, s.Node, s.local)
+			err = fmt.Errorf("[Request] No local service found: %s(%v) %v %v", s.symdict[c], c, s.Node, s.local)
 		} else {
 			r, err = service.Procedure(i, m, p)
 		}
@@ -224,7 +224,7 @@ func (s *Server) response(conn net.Conn) {
 			param := data[:length]
 			data = data[length:]
 			if services, ok := s.local[service]; !ok {
-				log.Printf("[MicroServer@%v] Service %s(%d) not exists", s.Address(), s.symdict[service], service)
+				log.Printf("[MicroServer@%v] Service %s(%v) not exists", s.Address(), s.symdict[service], service)
 			} else if result, err := services.Procedure(id, method, param); err != nil {
 				log.Printf("[MicroServer@%v] Procedure error:\n>>>> %v", s.Address(), err)
 			} else if _, err := conn.Write(append(lenBuf[:binary.PutUvarint(lenBuf[:], uint64(len(result)))], result...)); err != nil {
