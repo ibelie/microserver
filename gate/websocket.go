@@ -41,6 +41,6 @@ func Websocket(address string, handler func(microserver.Gate)) {
 	}))
 
 	if err := http.ListenAndServe(address, nil); err != nil {
-		log.Fatalf("[Websocket@%v] Cannot listen:\n>>>>%v", address, err)
+		log.Fatalf("[Websocket@%v] Cannot listen:\n>>>> %v", address, err)
 	}
 }

@@ -76,11 +76,11 @@ func (g *TcpGate) Receive() (data []byte, err error) {
 	for {
 		if n, err = g.Conn.Read(g.buffer[:]); err != nil {
 			if err == io.EOF || isClosedConnError(err) {
-				err = fmt.Errorf("[TcpGate@%v] Connection lost:\n>>>>%v", g.Address(), err)
+				err = fmt.Errorf("[TcpGate] Connection '%v' lost:\n>>>> %v", g.Address(), err)
 			} else if e, ok := err.(net.Error); ok && e.Timeout() {
-				err = fmt.Errorf("[TcpGate@%v] Connection timeout:\n>>>>%v", g.Address(), e)
+				err = fmt.Errorf("[TcpGate] Connection '%v' timeout:\n>>>> %v", g.Address(), e)
 			} else {
-				err = fmt.Errorf("[TcpGate@%v] Connection error:\n>>>>%v", g.Address(), err)
+				err = fmt.Errorf("[TcpGate] Connection '%v' error:\n>>>> %v", g.Address(), err)
 			}
 			return
 		} else {
@@ -92,7 +92,7 @@ func (g *TcpGate) Receive() (data []byte, err error) {
 			for i, b := range g.data {
 				if b < 0x80 {
 					if i > 9 || i == 9 && b > 1 {
-						err = fmt.Errorf("[TcpGate@%v] Request protocol error: %v %v",
+						err = fmt.Errorf("[TcpGate] Request '%v' protocol error: %v %v",
 							g.Address(), g.data[:i], length)
 						return
 					}
@@ -114,13 +114,13 @@ func (g *TcpGate) Receive() (data []byte, err error) {
 
 func Tcp(address string, handler func(microserver.Gate)) {
 	if lis, err := net.Listen("tcp", address); err != nil {
-		log.Fatalf("[TCP@%v] Cannot listen:\n>>>>%v", address, err)
+		log.Fatalf("[TCP@%v] Cannot listen:\n>>>> %v", address, err)
 	} else {
 		log.Printf("[TCP@%v] Waiting for clients...", address)
 		defer lis.Close()
 		for {
 			if conn, err := lis.Accept(); err != nil {
-				log.Printf("[TCP@%v] Accept error:\n>>>>%v", address, err)
+				log.Printf("[TCP@%v] Accept error:\n>>>> %v", address, err)
 			} else {
 				go func() {
 					defer conn.Close()

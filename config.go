@@ -27,11 +27,11 @@ type Configs struct {
 func ReadConfig(name string, filename string) (config *Config) {
 	configs := new(Configs)
 	if bytes, err := ioutil.ReadFile(filename); err != nil {
-		log.Fatalf("[Config] Read Config:\n>>>>%v", err)
+		log.Fatalf("[Config] Read Config:\n>>>> %v", err)
 	} else if err := json.Unmarshal(bytes, &configs); err != nil {
-		log.Fatalf("[Config] JSON Unmarshal:\n>>>>%v", err)
+		log.Fatalf("[Config] JSON Unmarshal:\n>>>> %v", err)
 	} else if conf, ok := configs.Configs[name]; !ok {
-		log.Fatalf("[Config] Cannot find config '%v' in '%v'\n>>>>%v", name, filename, configs)
+		log.Fatalf("[Config] Cannot find config '%v' in '%v'\n>>>> %v", name, filename, configs)
 	} else {
 		config = conf
 	}

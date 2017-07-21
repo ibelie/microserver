@@ -131,15 +131,15 @@ func NewServer(address string, symbols map[string]uint64,
 
 func (s *Server) Serve() {
 	if lis, err := net.Listen("tcp", s.Address); err != nil {
-		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>>%v", s.Address, err)
+		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>> %v", s.Address, err)
 	} else {
 		defer lis.Close()
 		log.Printf("[MicroServer@%v] Waiting for clients...", s.Address)
 		for {
 			if conn, err := lis.Accept(); err != nil {
-				log.Printf("[MicroServer@%v] Accept error:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Accept error:\n>>>> %v", s.Address, err)
 			} else {
-				go s.handler(conn)
+				go s.response(conn)
 			}
 		}
 	}
@@ -157,9 +157,29 @@ func (s *Server) Notify(i ruid.RUID, k ruid.RUID, p []byte) (err error) {
 func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []byte, r chan<- []byte) error {
 	routes, ok := s.routes[t]
 	if !ok {
-		return fmt.Errorf("[MicroServer@%v] Distribute unknown entity type: %s(%d)", s.Address, s.symdict[t], t)
+		return fmt.Errorf("[Distribute] Unknown entity type: %s(%d)", s.symdict[t], t)
 	}
-	go func() {
+	if r != nil {
+		go func() {
+			for c, ok := range routes {
+				if cs, exist := s.routes[m]; exist {
+					if ok, exist := cs[c]; !ok || !exist {
+						continue
+					}
+				}
+				if !ok {
+					continue
+				} else if d, e := s.Procedure(i, k, c, m, p); e != nil {
+					log.Printf("[MicroServer@%v] Distribute error:\n>>>> %v", s.Address, e)
+				} else {
+					r <- d
+				}
+			}
+			close(r)
+		}()
+		return nil
+	} else {
+		var errors []string
 		for c, ok := range routes {
 			if cs, exist := s.routes[m]; exist {
 				if ok, exist := cs[c]; !ok || !exist {
@@ -168,15 +188,12 @@ func (s *Server) Distribute(i ruid.RUID, k ruid.RUID, t uint64, m uint64, p []by
 			}
 			if !ok {
 				continue
-			} else if d, e := s.Procedure(i, k, c, m, p); e != nil {
-				log.Printf("[MicroServer@%v] Distribute error:\n>>>>%v", s.Address, e)
-			} else if r != nil {
-				r <- d
+			} else if _, e := s.Procedure(i, k, c, m, p); e != nil {
+				errors = append(errors, fmt.Sprintf("\n>>>> service: %s(%v)\n>>>> %v", s.symdict[c], c, e))
 			}
 		}
-		close(r)
-	}()
-	return nil
+		return fmt.Errorf("[Distribute] %s(%v:%v) %s(%v) errors:%s", s.symdict[t], i, k, s.symdict[m], m, strings.Join(errors, ""))
+	}
 }
 
 func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
@@ -186,14 +203,20 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 	}
 
 	if ring, ok := s.remote[c]; !ok {
-		err = fmt.Errorf("[MicroServer@%v] Procedure unknown service type: %s(%d)", s.Address, s.symdict[c], c)
+		err = fmt.Errorf("[Procedure] Unknown service type: %s(%d)", s.symdict[c], c)
 		return
 	} else if node, ok = ring.Get(k); !ok {
-		err = fmt.Errorf("[MicroServer@%v] Procedure no service found: %s(%d) %v %v", s.Address, s.symdict[c], c, s.Node, s.nodes)
+		err = fmt.Errorf("[Procedure] No service found: %s(%d) %v %v", s.symdict[c], c, s.Node, s.nodes)
 		return
-	} else if node == s.Address {
+	}
+	r, err = s.request(node, i, c, m, p)
+	return
+}
+
+func (s *Server) request(node string, i ruid.RUID, c uint64, m uint64, p []byte) (r []byte, err error) {
+	if node == s.Address {
 		if service, ok := s.local[c]; !ok {
-			err = fmt.Errorf("[MicroServer@%v] Procedure no local service found: %s(%d) %v %v", s.Address, s.symdict[c], c, s.Node, s.local)
+			err = fmt.Errorf("[Request] No local service found: %s(%d) %v %v", s.symdict[c], c, s.Node, s.local)
 		} else {
 			r, err = service.Procedure(i, m, p)
 		}
@@ -204,7 +227,7 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 		s.mutex.Lock()
 		s.conns[node] = &sync.Pool{New: func() interface{} {
 			if conn, err := net.DialTimeout("tcp", node, CONN_DEADLINE*time.Second); err != nil {
-				log.Printf("[MicroServer@%v] Connection failed: %s\n>>>>%v", s.Address, node, err)
+				log.Printf("[MicroServer@%v] Connection failed: %s\n>>>> %v", s.Address, node, err)
 				return nil
 			} else {
 				return conn
@@ -237,11 +260,11 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 			for {
 				if n, err = conn.Read(buffer[:]); err != nil {
 					if err == io.EOF || isClosedConnError(err) {
-						log.Printf("[MicroServer@%v] Request lost:\n>>>>%v", s.Address, err)
+						err = fmt.Errorf("[Request] Connection lost:\n>>>> %v", err)
 					} else if e, ok := err.(net.Error); ok && e.Timeout() {
-						log.Printf("[MicroServer@%v] Request timeout:\n>>>>%v", s.Address, e)
+						err = fmt.Errorf("[Request] Connection timeout:\n>>>> %v", e)
 					} else {
-						log.Printf("[MicroServer@%v] Request error:\n>>>>%v", s.Address, err)
+						err = fmt.Errorf("[Request] Connection error:\n>>>> %v", err)
 					}
 					return
 				} else {
@@ -253,8 +276,8 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 					for l, b := range result {
 						if b < 0x80 {
 							if l > 9 || l == 9 && b > 1 {
-								err = fmt.Errorf("[MicroServer@%v] Response protocol error: %v %v",
-									s.Address, result[:l], length)
+								err = fmt.Errorf("[Request] Response protocol error: %v %v",
+									result[:l], length)
 								return
 							}
 							length |= uint64(b) << k
@@ -280,7 +303,7 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 			if err == io.EOF || isClosedConnError(err) {
 			} else if e, ok := err.(net.Error); ok && e.Timeout() {
 			} else {
-				log.Printf("[MicroServer@%v] Procedure retry:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Request retry:\n>>>> %v", s.Address, err)
 			}
 		}
 	}
@@ -288,7 +311,7 @@ func (s *Server) Procedure(i ruid.RUID, k ruid.RUID, c uint64, m uint64, p []byt
 	return
 }
 
-func (s *Server) handler(conn net.Conn) {
+func (s *Server) response(conn net.Conn) {
 	var id ruid.RUID
 	var service, method, length, step uint64
 	var data []byte
@@ -299,11 +322,11 @@ func (s *Server) handler(conn net.Conn) {
 		conn.SetReadDeadline(time.Now().Add(time.Second * READ_DEADLINE))
 		if n, err := conn.Read(buffer[:]); err != nil {
 			if err == io.EOF || isClosedConnError(err) {
-				log.Printf("[MicroServer@%v] Connection lost:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Connection lost:\n>>>> %v", s.Address, err)
 			} else if e, ok := err.(net.Error); ok && e.Timeout() {
-				log.Printf("[MicroServer@%v] Connection timeout:\n>>>>%v", s.Address, e)
+				log.Printf("[MicroServer@%v] Connection timeout:\n>>>> %v", s.Address, e)
 			} else {
-				log.Printf("[MicroServer@%v] Connection error:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Connection error:\n>>>> %v", s.Address, err)
 			}
 			return
 		} else {
@@ -314,8 +337,8 @@ func (s *Server) handler(conn net.Conn) {
 			for i, b := range data {
 				if b < 0x80 {
 					if i > 9 || i == 9 && b > 1 {
-						log.Printf("[MicroServer@%v] Request protocol error: %v %v %v %v %v %v",
-							s.Address, data[:i], id, service, method, length, step)
+						log.Printf("[MicroServer@%v] Request protocol error: %v %v %s(%v) %s(%v) %v %v",
+							s.Address, data[:i], id, s.symdict[service], service, s.symdict[method], method, length, step)
 						return // overflow
 					}
 					x |= uint64(b) << k
@@ -342,9 +365,9 @@ func (s *Server) handler(conn net.Conn) {
 			if services, ok := s.local[service]; !ok {
 				log.Printf("[MicroServer@%v] Service %s(%d) not exists", s.Address, s.symdict[service], service)
 			} else if result, err := services.Procedure(id, method, param); err != nil {
-				log.Printf("[MicroServer@%v] Procedure error:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Procedure error:\n>>>> %v", s.Address, err)
 			} else if _, err := conn.Write(append(lenBuf[:binary.PutUvarint(lenBuf[:], uint64(len(result)))], result...)); err != nil {
-				log.Printf("[MicroServer@%v] Response error:\n>>>>%v", s.Address, err)
+				log.Printf("[MicroServer@%v] Response error:\n>>>> %v", s.Address, err)
 			}
 			step = 0
 		}
@@ -372,7 +395,7 @@ func (s *Server) Discover(ip string, port int, namespace string) {
 	}
 
 	if c, err := client.New(cfg); err != nil {
-		log.Fatalf("[MicroServer@%v] Cannot connect to etcd:\n>>>>%v", s.Address, err)
+		log.Fatalf("[MicroServer@%v] Cannot connect to etcd:\n>>>> %v", s.Address, err)
 	} else {
 		api := client.NewKeysAPI(c)
 		go s.keep(namespace, api)
