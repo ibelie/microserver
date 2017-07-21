@@ -58,6 +58,65 @@ func isClosedConnError(err error) bool {
 	return false
 }
 
+type TcpConn struct {
+	net.Conn
+	data   []byte
+	buffer [BUFFER_SIZE]byte
+}
+
+func (g *TcpConn) Address() string {
+	return g.RemoteAddr().String()
+}
+
+func (g *TcpConn) Send(data []byte) (err error) {
+	var lenBuf [binary.MaxVarintLen64]byte
+	_, err = g.Conn.Write(append(lenBuf[:binary.PutUvarint(lenBuf[:], uint64(len(data)))], data...))
+	return
+}
+
+func (g *TcpConn) Receive() (data []byte, err error) {
+	var n int
+	var length uint64
+	var hasLength bool
+	for {
+		if n, err = g.Conn.Read(g.buffer[:]); err != nil {
+			if err == io.EOF || isClosedConnError(err) {
+				err = fmt.Errorf("[Tcp] Connection '%v' lost:\n>>>> %v", g.Address(), err)
+			} else if e, ok := err.(net.Error); ok && e.Timeout() {
+				err = fmt.Errorf("[Tcp] Connection '%v' timeout:\n>>>> %v", g.Address(), e)
+			} else {
+				err = fmt.Errorf("[Tcp] Connection '%v' error:\n>>>> %v", g.Address(), err)
+			}
+			return
+		} else {
+			g.data = append(g.data, g.buffer[:n]...)
+		}
+		if !hasLength {
+			length = 0
+			var k uint
+			for i, b := range g.data {
+				if b < 0x80 {
+					if i > 9 || i == 9 && b > 1 {
+						err = fmt.Errorf("[Tcp] Request '%v' protocol error: %v %v",
+							g.Address(), g.data[:i], length)
+						return
+					}
+					length |= uint64(b) << k
+					g.data = g.data[i+1:]
+					hasLength = true
+				}
+				length |= uint64(b&0x7f) << k
+				k += 7
+			}
+		}
+		if hasLength && uint64(len(g.data)) >= length {
+			data = g.data[:length]
+			g.data = g.data[length:]
+			return
+		}
+	}
+}
+
 func (s *Server) Serve() {
 	if lis, err := net.Listen("tcp", s.Address()); err != nil {
 		log.Fatalf("[MicroServer@%v] Cannot listen:\n>>>> %v", s.Address(), err)
