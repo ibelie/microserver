@@ -48,7 +48,7 @@ func watch(s rpc.Server, namespace string, api client.KeysAPI) {
 			if res.Action == "expire" || res.Action == "delete" {
 				s.Remove(res.Node.Key)
 			} else if res.Action == "set" || res.Action == "update" {
-				node := new(Node)
+				node := new(rpc.Node)
 				if err := json.Unmarshal([]byte(res.Node.Value), node); err != nil {
 					log.Printf("[MicroServer@%v] Parse node value:\n>>>> %v", s.Address(), err)
 					break
