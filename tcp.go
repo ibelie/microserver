@@ -48,18 +48,18 @@ func (c *TcpConn) Receive() (data []byte, err error) {
 			return
 		} else if n, e := c.Conn.Read(c.buffer[:]); e != nil {
 			if e == io.EOF || isClosedConnError(e) {
-				err = fmt.Errorf("[Tcp] Connection '%v' lost:\n>>>> %v", c.Address(), e)
+				err = fmt.Errorf("[Tcp] Connection %q lost:\n>>>> %v", c.Address(), e)
 			} else if ee, ok := e.(net.Error); ok && ee.Timeout() {
-				err = fmt.Errorf("[Tcp] Connection '%v' timeout:\n>>>> %v", c.Address(), ee)
+				err = fmt.Errorf("[Tcp] Connection %q timeout:\n>>>> %v", c.Address(), ee)
 			} else {
-				err = fmt.Errorf("[Tcp] Connection '%v' error:\n>>>> %v", c.Address(), e)
+				err = fmt.Errorf("[Tcp] Connection %q error:\n>>>> %v", c.Address(), e)
 			}
 			return
 		} else {
 			c.data = Extend(c.data, c.buffer[:n])
 		}
 		if data, err = Unpack(c.data); err != nil {
-			err = fmt.Errorf("[Tcp] Connection '%v' error:\n>>>> %v", c.Address(), err)
+			err = fmt.Errorf("[Tcp] Connection %q error:\n>>>> %v", c.Address(), err)
 		} else if len(data) > 0 {
 			return
 		}

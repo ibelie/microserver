@@ -31,7 +31,7 @@ func ReadConfig(name string, filename string) (config *Config) {
 	} else if err := json.Unmarshal(bytes, &configs); err != nil {
 		log.Fatalf("[Config] JSON Unmarshal:\n>>>> %v", err)
 	} else if conf, ok := configs.Configs[name]; !ok {
-		log.Fatalf("[Config] Cannot find config '%v' in '%v'\n>>>> %v", name, filename, configs)
+		log.Fatalf("[Config] Cannot find config %q in %q\n>>>> %v", name, filename, configs)
 	} else {
 		config = conf
 	}
