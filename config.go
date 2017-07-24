@@ -20,22 +20,18 @@ type Config struct {
 	Etcd    int
 }
 
-type Configs struct {
-	Configs map[string]*Config
-}
-
 func ReadConfig(name string, filename string) (config *Config) {
-	configs := new(Configs)
+	configs := make(map[string]*Config)
 	if bytes, err := ioutil.ReadFile(filename); err != nil {
 		log.Fatalf("[Config] Read Config:\n>>>> %v", err)
 	} else if err := json.Unmarshal(bytes, &configs); err != nil {
 		log.Fatalf("[Config] JSON Unmarshal:\n>>>> %v", err)
-	} else if conf, ok := configs.Configs[name]; !ok {
+	} else if conf, ok := configs[name]; !ok {
 		log.Fatalf("[Config] Cannot find config %q in %q\n>>>> %v", name, filename, configs)
 	} else {
 		config = conf
 	}
-	if common, ok := configs.Configs["common"]; ok {
+	if common, ok := configs["common"]; ok {
 		if config.Project == "" {
 			config.Project = common.Project
 		}
