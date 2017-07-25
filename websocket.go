@@ -34,7 +34,9 @@ func (c *WsConn) Send(data []byte) (err error) {
 func (c *WsConn) Receive() (data []byte, err error) {
 	var message string
 	if err = c.Conn.SetReadDeadline(time.Now().Add(time.Second * READ_DEADLINE)); err == nil {
-		if err = websocket.Message.Receive(c.Conn, &message); err == nil {
+		if err = websocket.Message.Receive(c.Conn, &message); err == io.EOF {
+			err = fmt.Errorf("[Websocket] Connection %q lost:\n>>>> %v", c.Address(), err)
+		} else if err == nil {
 			data, err = base64.RawURLEncoding.DecodeString(message)
 		}
 	}
