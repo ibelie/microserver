@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	Project string
+	Entry   string
 	IP      string
 	Gate    int
 	Port    int
@@ -34,6 +35,9 @@ func ReadConfig(name string, filename string) (config *Config) {
 	if common, ok := configs["common"]; ok {
 		if config.Project == "" {
 			config.Project = common.Project
+		}
+		if config.Entry == "" {
+			config.Entry = common.Entry
 		}
 		if config.IP == "" {
 			config.IP = common.IP
