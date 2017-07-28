@@ -1,2 +1,2 @@
 # microserver
-micro services framework
+micro-services framework
