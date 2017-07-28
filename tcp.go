@@ -99,9 +99,14 @@ func (_ TcpNet) Connect(address string) rpc.Connection {
 }
 
 func Pack(data []byte) (pack []byte) {
-	var i, x int
-	for x = len(data); x > 0; x >>= 7 {
+	i := 0
+	x := len(data)
+	for {
 		i++
+		x >>= 7
+		if x == 0 {
+			break
+		}
 	}
 	pack = make([]byte, i+len(data))
 
