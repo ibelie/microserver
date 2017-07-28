@@ -6,23 +6,18 @@
 import socket
 import thread
 import common
-
-class BaseClient(object):
-	def __init__(self, IDType):
-		self.entities = {}
-
-	def handler(self, data):
+import classes
 
 
-class TcpClient(BaseClient):
+class TcpClient(classes.BaseClient):
 	BUFFER_SIZE = 4096
 
-	def __init__(self, ip, port, IDType):
-		super(TcpClient, self).__init__(IDType)
+	def __init__(self, ip, port):
+		super(TcpClient, self).__init__()
 		self.ip = ip
 		self.port = port
 		self.connect()
-		thread.start_new_thread(self.recieve, ())
+		thread.start_new_thread(self.recv, ())
 
 	def connect(self):
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -33,7 +28,7 @@ class TcpClient(BaseClient):
 		self.socket.close()
 		self.socket = None
 
-	def recieve(self):
+	def recv(self):
 		buffer = None
 		while 1:
 			try:
@@ -60,4 +55,3 @@ class TcpClient(BaseClient):
 
 	def send(self, data):
 		self.socket.sendall(common.pack(data))
-

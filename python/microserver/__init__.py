@@ -6,8 +6,11 @@
 __version__ = '0.0.1'
 
 try:
-	from _client import TcpClient
+	from _client import TcpClient, SetIDType
 	IMPLEMENTATION_TYPE = 'c'
 except ImportError:
-	from tcp_client import TcpClient
+	from client import TcpClient
+	from common import SetIDType
 	IMPLEMENTATION_TYPE = 'python'
+
+from classes import Entity, Component, Message

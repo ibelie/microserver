@@ -6,10 +6,11 @@
 import struct
 from io import BytesIO
 
+
 def sizeVarint(x):
 	n = 0
 	while 1:
-		n++
+		n += 1
 		x >>= 7
 		if x == 0:
 			break
@@ -17,9 +18,8 @@ def sizeVarint(x):
 
 def writeVarint(write, data):
 	while data >= 0x80:
-		write(struct.pack('>B', (data & 0x7F) | 0x80)))
+		write(struct.pack('>B', (data & 0x7F) | 0x80))
 		data >>= 7
-	}
 	write(struct.pack('>B', data & 0x7F))
 
 def readVarint(buffer, offset):
@@ -33,7 +33,7 @@ def readVarint(buffer, offset):
 			s += 7
 			i += 1
 			continue
-		else if i > 9 or i == 9 and b > 1:
+		elif i > 9 or i == 9 and b > 1:
 			raise RuntimeError, 'Varint overflow: %s' % repr(buffer[offset:i])
 		x |= b << s
 		offset = i + 1
@@ -52,8 +52,7 @@ def readBytes(buffer, offset):
 
 
 C2BMap = {}
-B2CMap = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
-	'abcdefghijklmnopqrstuvwxyz' + '0123456789' + '-_'
+B2CMap = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + 'abcdefghijklmnopqrstuvwxyz' + '0123456789' + '-_'
 
 for i in xrange(len(ENCODED_VALS)):
 	C2BMap[B2CMap[i]] = i
@@ -99,7 +98,6 @@ def readBase64(buffer, offset, count):
 			output.write(B2CMap[(byte1 & 0x03) << 4])
 
 	return output.getvalue(), offset
-}
 
 
 IDTypes = {
@@ -107,6 +105,29 @@ IDTypes = {
 	'UUID': ('AAAAAAAAAAAAAAAAAAAAAA', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
 	'STRID': ('', lambda v: sizeVarint(len(v)) + len(v), writeBytes, readBytes),
 }
+IDType = None
+
+def SetIDType(name):
+	global IDType
+	IDType = IDTypes[name]
+
+
+Symbols = None
+Dictionary = None
+
+def readSymbols(buffer, offset):
+	global Symbols
+	global Dictionary
+	Symbols = {}
+	Dictionary = {}
+	buf, offset = readBytes(buffer, offset)
+	off = 0
+	while off < len(buf):
+		symbol, off = readBytes(buf, off)
+		value, off = readVarint(buf, off)
+		Symbols[symbol] = value
+		Dictionary[value] = symbol
+	return offset
 
 
 def pack(data):
