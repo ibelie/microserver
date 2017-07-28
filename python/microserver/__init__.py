@@ -9,5 +9,5 @@ try:
 	from _client import TcpClient
 	IMPLEMENTATION_TYPE = 'c'
 except ImportError:
-	from client import TcpClient
+	from tcp_client import TcpClient
 	IMPLEMENTATION_TYPE = 'python'
