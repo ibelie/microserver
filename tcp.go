@@ -145,6 +145,7 @@ func Unpack(pack []byte) (data []byte, err error) {
 			}
 			length |= int(b) << x
 			offset = i + 1
+			break
 		}
 		length |= int(b&0x7f) << x
 		x += 7
