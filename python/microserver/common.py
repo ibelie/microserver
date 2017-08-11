@@ -54,7 +54,7 @@ def readBytes(buffer, offset):
 C2BMap = {}
 B2CMap = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + 'abcdefghijklmnopqrstuvwxyz' + '0123456789' + '-_'
 
-for i in xrange(len(ENCODED_VALS)):
+for i in xrange(len(B2CMap)):
 	C2BMap[B2CMap[i]] = i
 
 def writeBase64(write, data):
@@ -105,7 +105,7 @@ IDTypes = {
 	'UUID': ('AAAAAAAAAAAAAAAAAAAAAA', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
 	'STRID': ('', lambda v: sizeVarint(len(v)) + len(v), writeBytes, readBytes),
 }
-IDType = None
+IDType = IDTypes['RUID']
 
 def SetIDType(name):
 	global IDType

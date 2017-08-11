@@ -7,6 +7,10 @@ import common
 from io import BytesIO
 
 
+def Property(func):
+	return func
+
+
 def Message(func):
 	return func
 
