@@ -73,8 +73,19 @@ class Entity(object):
 		self.Type = t >> 2
 
 
+class ComponentVirtual(object):
+	def __init__(self, klass, path):
+		self.klass = klass
+		self.path = path
+
+
 class MetaComponent(type):
 	Components = {}
+
+	def __call__(cls, entity, *args):
+		if args:
+			return ComponentVirtual(entity, args[0])
+		return super(MetaComponent, cls).__call__(entity)
 
 
 class Component(object):
