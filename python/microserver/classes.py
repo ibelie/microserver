@@ -15,8 +15,33 @@ def Message(func):
 	return func
 
 
+class ComponentVirtual(object):
+	def __init__(self, klass, path):
+		self.klass = klass
+		self.path = path
+
+
 class MetaEntity(type):
 	Entities = {}
+
+	def __new__(mcs, clsname, bases, attrs):
+		components = {}
+		for name, attr in attrs.iteritems():
+			if isinstance(attr, ComponentVirtual):
+				components[name] = attr
+		if components:
+			for name in components:
+				attrs.pop(name)
+			attrs['____components__'] = components
+
+		cls = super(MetaEntity, mcs).__new__(mcs, clsname, bases, attrs)
+
+		if clsname != 'Entity':
+			if clsname in mcs.Entities:
+				raise TypeError, 'Entity name "%s" already exists.' % clsname
+			mcs.Entities[clsname] = cls
+
+		return cls
 
 	@classmethod
 	def Create(self, t):
@@ -73,18 +98,22 @@ class Entity(object):
 		self.Type = t >> 2
 
 
-class ComponentVirtual(object):
-	def __init__(self, klass, path):
-		self.klass = klass
-		self.path = path
-
-
 class MetaComponent(type):
 	Components = {}
 
+	def __new__(mcs, clsname, bases, attrs):
+		cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
+
+		if clsname != 'Component':
+			if clsname in mcs.Components:
+				raise TypeError, 'Component name "%s" already exists.' % clsname
+			mcs.Components[clsname] = cls
+
+		return cls
+
 	def __call__(cls, entity, *args):
 		if args:
-			return ComponentVirtual(entity, args[0])
+			return ComponentVirtual(entity, *args)
 		return super(MetaComponent, cls).__call__(entity)
 
 
