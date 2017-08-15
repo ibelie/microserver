@@ -15,14 +15,7 @@ def Message(func):
 	return func
 
 
-class VirtualModule(object):
-	def __getattr__(self, key):
-		value = VirtualModule()
-		setattr(self, key, value)
-		return value
-
-
-class VirtualComponent(object):
+class DeclareComponent(object):
 	def __init__(self, klass, path):
 		self.klass = klass
 		self.path = path
@@ -34,7 +27,7 @@ class MetaEntity(type):
 	def __new__(mcs, clsname, bases, attrs):
 		components = {}
 		for name, attr in attrs.iteritems():
-			if isinstance(attr, VirtualComponent):
+			if isinstance(attr, DeclareComponent):
 				components[name] = attr
 		if components:
 			for name in components:
@@ -120,7 +113,7 @@ class MetaComponent(type):
 
 	def __call__(cls, entity, *args):
 		if args:
-			return VirtualComponent(entity, *args)
+			return DeclareComponent(entity, *args)
 		return super(MetaComponent, cls).__call__(entity)
 
 
