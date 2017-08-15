@@ -45,7 +45,7 @@ class MetaComponent(type):
 		cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
 
 		if clsname != 'Component':
-			if clsname in mcs.Components and not getattr(mcs.Entities[clsname], '____virtual__', False):
+			if clsname in mcs.Components and not getattr(mcs.Components[clsname], '____virtual__', False):
 				raise TypeError, 'Component name "%s" already exists.' % clsname
 			mcs.Components[clsname] = cls
 

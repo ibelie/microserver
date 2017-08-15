@@ -21,6 +21,21 @@ type Config struct {
 	Etcd    int
 }
 
+func ReadConfigs(filename string) (configs map[string]*Config) {
+	configs = make(map[string]*Config)
+	if bytes, err := ioutil.ReadFile(filename); err != nil {
+		log.Fatalf("[Config] Read Config:\n>>>> %v", err)
+	} else if err := json.Unmarshal(bytes, &configs); err != nil {
+		log.Fatalf("[Config] JSON Unmarshal:\n>>>> %v", err)
+	} else if common, ok := configs["common"]; ok {
+		delete(configs, "common")
+		for _, config := range configs {
+			config.Update(common)
+		}
+	}
+	return
+}
+
 func ReadConfig(name string, filename string) (config *Config) {
 	configs := make(map[string]*Config)
 	if bytes, err := ioutil.ReadFile(filename); err != nil {
@@ -33,26 +48,30 @@ func ReadConfig(name string, filename string) (config *Config) {
 		config = conf
 	}
 	if common, ok := configs["common"]; ok {
-		if config.Project == "" {
-			config.Project = common.Project
-		}
-		if config.Entry == "" {
-			config.Entry = common.Entry
-		}
-		if config.IP == "" {
-			config.IP = common.IP
-		}
-		if config.Gate == 0 {
-			config.Gate = common.Gate
-		}
-		if config.Port == 0 {
-			config.Port = common.Port
-		}
-		if config.Etcd == 0 {
-			config.Etcd = common.Etcd
-		}
+		config.Update(common)
 	}
 	return
+}
+
+func (c *Config) Update(o *Config) {
+	if c.Project == "" {
+		c.Project = o.Project
+	}
+	if c.Entry == "" {
+		c.Entry = o.Entry
+	}
+	if c.IP == "" {
+		c.IP = o.IP
+	}
+	if c.Gate == 0 {
+		c.Gate = o.Gate
+	}
+	if c.Port == 0 {
+		c.Port = o.Port
+	}
+	if c.Etcd == 0 {
+		c.Etcd = o.Etcd
+	}
 }
 
 func (c *Config) GateAddress() string {
