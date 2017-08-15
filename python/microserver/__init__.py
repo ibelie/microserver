@@ -13,4 +13,4 @@ except ImportError:
 	from common import SetIDType
 	IMPLEMENTATION_TYPE = 'python'
 
-from classes import Entity, Component, Message
+from classes import VirtualModule, Entity, Component, Property, Message
