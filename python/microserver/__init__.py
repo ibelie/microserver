@@ -13,4 +13,4 @@ except ImportError:
 	from common import SetIDType
 	IMPLEMENTATION_TYPE = 'python'
 
-from classes import MetaEntity, Entity, MetaComponent, Component, Property, Message
+from classes import MetaEntity, Entity, MetaComponent, Component, Property, Message, ServerPackage

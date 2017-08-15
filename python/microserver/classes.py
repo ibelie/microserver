@@ -8,17 +8,88 @@ from io import BytesIO
 
 
 def Property(func):
+	func.____isPropertyHandler__ = True
 	return func
 
 
 def Message(func):
+	func.____isMessage__ = True
 	return func
 
 
-class DeclareComponent(object):
-	def __init__(self, klass, path):
-		self.klass = klass
-		self.path = path
+def ServerPackage(package):
+	def _ServerPackage(component):
+		component.____package__ = package
+		return component
+	return _ServerPackage
+
+
+class MetaComponent(type):
+	Components = {}
+
+	def __new__(mcs, clsname, bases, attrs):
+		messages = {}
+		for name, attr in attrs.iteritems():
+			if getattr(attr, '____isMessage__', False):
+				messages[name] = attr
+		attrs['____messages__'] = messages
+
+		properties = {}
+		for name, attr in attrs.iteritems():
+			if getattr(attr, '____isPropertyHandler__', False):
+				properties[name] = attr
+		for name in properties:
+			attrs[name + 'Handler'] = attrs.pop(name)
+		attrs['____properties__'] = properties
+
+		cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
+
+		if clsname != 'Component':
+			if clsname in mcs.Components and not getattr(mcs.Entities[clsname], '____virtual__', False):
+				raise TypeError, 'Component name "%s" already exists.' % clsname
+			mcs.Components[clsname] = cls
+
+		return cls
+
+
+class Component(object):
+	__metaclass__ = MetaComponent
+
+	def __init__(self, entity):
+		self.Entity = entity
+
+	def Awake(self, e):
+		if e.isAwake:
+			print '[Entity] Already awaked:', e
+			return e
+
+		client = self.Entity.client
+		if e.ID in client.entities:
+			client.entities[e.ID]
+		entity = MetaEntity.Create(e.Type)
+		entity.ID = e.ID
+		entity.Key = e.Key
+		entity.Type = e.Type
+		entity.client = client
+		client.message(e, common.Symbols['OBSERVE'])
+		client.entities[entity.ID] = entity
+		return entity
+
+	def Drop(self, e):
+		if not e or not e.isAwake:
+			print '[Entity] Not awaked:', e
+			return
+
+		for name in e.DropComp:
+			e.components[name].onDrop()
+		for _, component in e.components.iteritems():
+			delattr(component, 'Entity')
+
+		e.isAwake = False
+		client = self.Entity.connection
+		client.message(e, common.Symbols['IGNORE'])
+		del client.entities[e.ID]
+		return Entity(ID = e.ID, Key = e.Key, Type = e.Type)
 
 
 class MetaEntity(type):
@@ -27,12 +98,9 @@ class MetaEntity(type):
 	def __new__(mcs, clsname, bases, attrs):
 		components = {}
 		for name, attr in attrs.iteritems():
-			if isinstance(attr, DeclareComponent):
+			if isinstance(attr, type) and issubclass(attr, Component):
 				components[name] = attr
-		if components:
-			for name in components:
-				attrs.pop(name)
-			attrs['____components__'] = components
+		attrs['____components__'] = components
 
 		cls = super(MetaEntity, mcs).__new__(mcs, clsname, bases, attrs)
 
@@ -96,65 +164,6 @@ class Entity(object):
 		else:
 			self.Key = common.IDType[0]
 		self.Type = t >> 2
-
-
-class MetaComponent(type):
-	Components = {}
-
-	def __new__(mcs, clsname, bases, attrs):
-		cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
-
-		if clsname != 'Component':
-			if clsname in mcs.Components and not getattr(mcs.Entities[clsname], '____virtual__', False):
-				raise TypeError, 'Component name "%s" already exists.' % clsname
-			mcs.Components[clsname] = cls
-
-		return cls
-
-	def __call__(cls, entity, *args):
-		if args:
-			return DeclareComponent(entity, *args)
-		return super(MetaComponent, cls).__call__(entity)
-
-
-class Component(object):
-	__metaclass__ = MetaComponent
-
-	def __init__(self, entity):
-		self.Entity = entity
-
-	def Awake(self, e):
-		if e.isAwake:
-			print '[Entity] Already awaked:', e
-			return e
-
-		client = self.Entity.client
-		if e.ID in client.entities:
-			client.entities[e.ID]
-		entity = MetaEntity.Create(e.Type)
-		entity.ID = e.ID
-		entity.Key = e.Key
-		entity.Type = e.Type
-		entity.client = client
-		client.message(e, common.Symbols['OBSERVE'])
-		client.entities[entity.ID] = entity
-		return entity
-
-	def Drop(self, e):
-		if not e or not e.isAwake:
-			print '[Entity] Not awaked:', e
-			return
-
-		for name in e.DropComp:
-			e.components[name].onDrop()
-		for _, component in e.components.iteritems():
-			delattr(component, 'Entity')
-
-		e.isAwake = False
-		client = self.Entity.connection
-		client.message(e, common.Symbols['IGNORE'])
-		del client.entities[e.ID]
-		return Entity(ID = e.ID, Key = e.Key, Type = e.Type)
 
 
 class BaseClient(object):
