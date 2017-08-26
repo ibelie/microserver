@@ -6,6 +6,46 @@
 import common
 from io import BytesIO
 
+try:
+	import _client
+	import _proto
+
+	class MetaEnum(type):
+		def __new__(mcs, clsname, bases, attrs):
+			return getattr(_proto, '%s_Declare' % clsname)
+
+	class Enum(object):
+		__metaclass__ = MetaEnum
+
+	class MetaObject(type):
+		def __new__(mcs, clsname, bases, attrs):
+			return getattr(_proto, clsname)(attrs)
+
+	class Object(object):
+		__metaclass__ = MetaObject
+
+except ImportError:
+	_client = None
+
+	try:
+		import proto
+	except ImportError:
+		proto = None
+
+	class MetaEnum(type):
+		def __new__(mcs, clsname, bases, attrs):
+			return (proto and getattr(proto, clsname)) or super(MetaEnum, mcs).__new__(mcs, clsname, bases, attrs)
+
+	class Enum(object):
+		__metaclass__ = MetaEnum
+
+	class MetaObject(type):
+		def __new__(mcs, clsname, bases, attrs):
+			return (proto and getattr(proto, clsname)) or super(MetaObject, mcs).__new__(mcs, clsname, bases, attrs)
+
+	class Object(object):
+		__metaclass__ = MetaObject
+
 
 def Property(func):
 	func.____isPropertyHandler__ = True
@@ -42,7 +82,10 @@ class MetaComponent(type):
 			attrs[name + 'Handler'] = attrs.pop(name)
 		attrs['____properties__'] = properties
 
-		cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
+		if _client is None:
+			cls = super(MetaComponent, mcs).__new__(mcs, clsname, bases, attrs)
+		else:
+			cls = _client.Component(clsname, attrs)
 
 		if clsname != 'Component':
 			if clsname in mcs.Components and not getattr(mcs.Components[clsname], '____virtual__', False):
@@ -57,8 +100,12 @@ class Component(object):
 
 	def __init__(self, entity):
 		self.Entity = entity
-		typyCls = getattr(entity.client.proto, self.__class__.__name__, None)
+		import proto
+		typyCls = getattr(proto, self.__class__.__name__, None)
 		self.____typyInst__ = typyCls and typyCls()
+
+	def __getattr__(self, key):
+		return getattr(self.____typyInst__, key)
 
 	def Deserialize(self, data):
 		self.____typyInst__ and self.____typyInst__.MergeFromString(data)
@@ -81,7 +128,7 @@ class Component(object):
 			print '[Entity] Not awaked:', e
 			return
 
-		for name in e.DropComp:
+		for name in e.____dropComponents__:
 			e.components[name].onDrop()
 		for _, component in e.components.iteritems():
 			delattr(component, 'Entity')
@@ -98,12 +145,29 @@ class MetaEntity(type):
 
 	def __new__(mcs, clsname, bases, attrs):
 		components = {}
+		awakeComps = set()
+		dropComps = set()
+		msgComps = {}
 		for name, attr in attrs.iteritems():
 			if isinstance(attr, type) and issubclass(attr, Component):
 				components[name] = attr
+				if hasattr(attr, 'onAwake'):
+					awakeComps.add(name)
+				if hasattr(attr, 'onDrop'):
+					dropComps.add(name)
+				for msg in attr.____messages__:
+					if msg not in msgComps:
+						msgComps[msg] = set()
+					msgComps[msg].add(name)
+		attrs['____awakeComponents__'] = tuple(awakeComps)
+		attrs['____dropComponents__'] = tuple(dropComps)
+		attrs['____msgComponents__'] = {k: tuple(v) for k, v in msgComps.iteritems()}
 		attrs['____components__'] = components
 
-		cls = super(MetaEntity, mcs).__new__(mcs, clsname, bases, attrs)
+		if _client is None:
+			cls = super(MetaEntity, mcs).__new__(mcs, clsname, bases, attrs)
+		else:
+			cls = _client.Entity(clsname, attrs)
 
 		if clsname != 'Entity':
 			if clsname in mcs.Entities and not getattr(mcs.Entities[clsname], '____virtual__', False):
@@ -216,12 +280,12 @@ class BaseClient(object):
 					handler and handler(oldValue, newValue)
 			else:
 				args = entity['Deserialize' + name](buf)
-				for n in entity.MessageComp[name]:
+				for n in entity.____msgComponents__[name]:
 					getattr(entity.components[n], name)(*args)
 
 		if entity and not entity.isAwake:
 			entity.isAwake = True
-			for name in entity.AwakeComp:
+			for name in entity.____awakeComponents__:
 				entity.components[name].onAwake()
 
 	def message(self, entity, method, data = None):

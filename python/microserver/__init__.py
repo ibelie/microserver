@@ -12,4 +12,6 @@ except ImportError:
 	from client import TcpClient
 	IMPLEMENTATION_TYPE = 'python'
 
-from classes import MetaEntity, Entity, MetaComponent, Component, Property, Message, ServerPackage
+from classes import MetaEntity, Entity
+from classes import MetaComponent, Component
+from classes import Enum, Object, Property, Message, ServerPackage

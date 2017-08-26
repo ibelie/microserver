@@ -10,21 +10,13 @@ import classes
 import traceback
 
 
-try:
-	import proto
-except ImportError:
-	class _Proto(object):
-		IDType = 'RUID'
-	proto = _Proto()
-
-
 class TcpClient(classes.BaseClient):
 	BUFFER_SIZE = 4096
 
 	def __init__(self, ip, port):
 		super(TcpClient, self).__init__()
+		import proto
 		self.IDType = common.IDTypes[proto.IDType]
-		self.proto = proto
 		self.ip = ip
 		self.port = port
 		self.connect()
