@@ -7,6 +7,7 @@ import socket
 import thread
 import common
 import classes
+import traceback
 
 
 class TcpClient(classes.BaseClient):
@@ -47,9 +48,8 @@ class TcpClient(classes.BaseClient):
 				self.disconnect()
 				self.connect()
 			except Exception as e:
-				print '[microserver] Client recieve error:', e
-				import traceback
-				print traceback.print_stack()
+				print '[microserver] Client receive error:', e
+				traceback.print_exc()
 				break
 		self.socket.close()
 
