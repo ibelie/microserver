@@ -105,19 +105,9 @@ IDTypes = {
 	'UUID': ('AAAAAAAAAAAAAAAAAAAAAA', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
 	'STRID': ('', lambda v: sizeVarint(len(v)) + len(v), writeBytes, readBytes),
 }
-IDType = None
 
-def SetIDType(name):
-	global IDType
-	IDType = IDTypes[name]
-
-
-Symbols = None
-Dictionary = None
 
 def readSymbols(buffer, offset):
-	global Symbols
-	global Dictionary
 	Symbols = {}
 	Dictionary = {}
 	buf, offset = readBytes(buffer, offset)
@@ -127,7 +117,7 @@ def readSymbols(buffer, offset):
 		value, off = readVarint(buf, off)
 		Symbols[symbol] = value
 		Dictionary[value] = symbol
-	return offset
+	return offset, Symbols, Dictionary
 
 
 def pack(data):

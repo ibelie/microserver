@@ -66,12 +66,8 @@ class Component(object):
 		client = self.Entity.client
 		if e.ID in client.entities:
 			client.entities[e.ID]
-		entity = MetaEntity.Create(e.Type)
-		entity.ID = e.ID
-		entity.Key = e.Key
-		entity.Type = e.Type
-		entity.client = client
-		client.message(e, common.Symbols['OBSERVE'])
+		entity = client.CreateEntity(e.ID, e.Key, client.Dictionary[e.Type])
+		client.message(e, client.Symbols['OBSERVE'])
 		client.entities[entity.ID] = entity
 		return entity
 
@@ -86,8 +82,8 @@ class Component(object):
 			delattr(component, 'Entity')
 
 		e.isAwake = False
-		client = self.Entity.connection
-		client.message(e, common.Symbols['IGNORE'])
+		client = self.Entity.client
+		client.message(e, client.Symbols['IGNORE'])
 		del client.entities[e.ID]
 		return Entity(ID = e.ID, Key = e.Key, Type = e.Type)
 
@@ -111,42 +107,39 @@ class MetaEntity(type):
 
 		return cls
 
-	@classmethod
-	def Create(self, t):
-		return None
-
 
 class Entity(object):
 	__metaclass__ = MetaEntity
 
-	def __init__(self, ID = None, Key = None, Type = None):
+	def __init__(self, client, ID = None, Key = None, Type = None):
+		self.client = client
 		self.isAwake = False
-		self.ID = ID or common.IDType[0]
-		self.Key = Key or common.IDType[0]
+		self.ID = ID or client.IDType[0]
+		self.Key = Key or client.IDType[0]
 		if Type is None:
 			self.Type = 0
 		else:
-			self.Type = common.Symbols[Type]
+			self.Type = client.Symbols[Type]
 
 	def ByteSize(self):
 		size = common.sizeVarint(self.Type << 2)
-		if self.ID != common.IDType[0]:
-			size += common.IDType[1](self.ID)
-		if self.Key != common.IDType[0]:
-			size += common.IDType[1](self.Key)
+		if self.ID != self.client.IDType[0]:
+			size += self.client.IDType[1](self.ID)
+		if self.Key != self.client.IDType[0]:
+			size += self.client.IDType[1](self.Key)
 		return size
 
 	def SerializeUnsealed(self, write):
 		t = self.Type << 2
-		if self.ID != common.IDType[0]:
+		if self.ID != self.client.IDType[0]:
 			t |= 1
-		if self.Key != common.IDType[0]:
+		if self.Key != self.client.IDType[0]:
 			t |= 2
 		common.writeVarint(write, t)
-		if self.ID != common.IDType[0]:
-			common.IDType[2](write, self.ID)
-		if self.Key != common.IDType[0]:
-			common.IDType[2](write, self.Key)
+		if self.ID != self.client.IDType[0]:
+			self.client.IDType[2](write, self.ID)
+		if self.Key != self.client.IDType[0]:
+			self.client.IDType[2](write, self.Key)
 
 	def Serialize(self):
 		output = BytesIO()
@@ -156,30 +149,28 @@ class Entity(object):
 	def Deserialize(self, buffer):
 		t, offset = common.readVarint(buffer, 0)
 		if t & 1:
-			self.ID, offset = common.IDType[3](buffer, offset)
+			self.ID, offset = self.client.IDType[3](buffer, offset)
 		else:
-			self.ID = common.IDType[0]
+			self.ID = self.client.IDType[0]
 		if t & 2:
-			self.Key, offset = common.IDType[3](buffer, offset)
+			self.Key, offset = self.client.IDType[3](buffer, offset)
 		else:
-			self.Key = common.IDType[0]
+			self.Key = self.client.IDType[0]
 		self.Type = t >> 2
 
 
 class BaseClient(object):
 	def __init__(self):
 		self.entities = {}
+		self.Symbols = None
+		self.Dictionary = None
 
 	def handler(self, buffer):
-		ID, offset = common.IDType[3](buffer, 0)
-		if common.Symbols is None:
-			offset = common.readSymbols(buffer, offset)
+		ID, offset = self.IDType[3](buffer, 0)
+		if self.Symbols is None:
+			offset, self.Symbols, self.Dictionary = common.readSymbols(buffer, offset)
 			t, offset = common.readVarint(buffer, offset)
-			entity = MetaEntity.Create(t)
-			entity.client = self
-			entity.ID = ID
-			entity.Key = common.IDType[0]
-			entity.Type = t
+			entity = self.CreateEntity(ID, self.IDType[0], self.Dictionary[t])
 			self.entities[ID] = entity
 		elif ID not in self.entities:
 			print '[Connection] Cannot find entity:', ID
@@ -189,7 +180,7 @@ class BaseClient(object):
 
 		while offset < len(buffer):
 			method, offset = common.readVarint(buffer, offset)
-			name = common.Dictionary[method]
+			name = self.Dictionary[method]
 			buf, offset = common.readBytes(buffer, offset)
 			if name in entity.components:
 				entity.components[name].MergeFromString(buf)
@@ -199,8 +190,8 @@ class BaseClient(object):
 			elif name == 'NOTIFY':
 				c, off = common.readVarint(buf, 0)
 				p, off = common.readVarint(buf, off)
-				compName = common.Dictionary[c]
-				propName = common.Dictionary[p]
+				compName = self.Dictionary[c]
+				propName = self.Dictionary[p]
 				newValue = common[compName]['Deserialize' + propName](buffer.Bytes())[0]
 				component = entity.components[compName]
 				oldValue = component[propName]
@@ -234,3 +225,8 @@ class BaseClient(object):
 		if data is not None:
 			output.write(data)
 		self.send(output.getvalue())
+
+	def CreateEntity(self, i, k, t):
+		entity = MetaEntity.Entities[t](self, i, k, t)
+		hasattr(entity, 'onCreate') and entity.onCreate()
+		return entity
