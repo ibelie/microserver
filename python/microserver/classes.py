@@ -119,10 +119,10 @@ class MetaEntity(type):
 class Entity(object):
 	__metaclass__ = MetaEntity
 
-	def __init__(self, ID = common.IDType[0], Key = common.IDType[0], Type = None):
+	def __init__(self, ID = None, Key = None, Type = None):
 		self.isAwake = False
-		self.ID = ID
-		self.Key = Key
+		self.ID = ID or common.IDType[0]
+		self.Key = Key or common.IDType[0]
 		if Type is None:
 			self.Type = 0
 		else:

@@ -105,7 +105,7 @@ IDTypes = {
 	'UUID': ('AAAAAAAAAAAAAAAAAAAAAA', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
 	'STRID': ('', lambda v: sizeVarint(len(v)) + len(v), writeBytes, readBytes),
 }
-IDType = IDTypes['RUID']
+IDType = None
 
 def SetIDType(name):
 	global IDType
