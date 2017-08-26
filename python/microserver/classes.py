@@ -57,6 +57,11 @@ class Component(object):
 
 	def __init__(self, entity):
 		self.Entity = entity
+		typyCls = getattr(entity.client.proto, self.__class__.__name__, None)
+		self.____typyInst__ = typyCls and typyCls()
+
+	def Deserialize(self, data):
+		self.____typyInst__ and self.____typyInst__.MergeFromString(data)
 
 	def Awake(self, e):
 		if e.isAwake:
@@ -184,7 +189,7 @@ class BaseClient(object):
 			name = self.Dictionary[method]
 			buf, offset = common.readBytes(buffer, offset)
 			if name in entity.components:
-				entity.components[name].MergeFromString(buf)
+				entity.components[name].Deserialize(buf)
 			elif not entity.isAwake:
 				print '[Connection] Entity is not awake:', id, name, entity
 				continue
@@ -228,6 +233,13 @@ class BaseClient(object):
 		self.send(output.getvalue())
 
 	def CreateEntity(self, i, k, t):
-		entity = MetaEntity.Entities[t](self, i, k, t)
+		eType = MetaEntity.Entities[t]
+		entity = eType(self, i, k, t)
+		components = {}
+		for cName, cType in eType.____components__.iteritems():
+			component = cType(entity)
+			components[cName] = component
+			setattr(entity, cName, component)
+		entity.components = components
 		hasattr(entity, 'onCreate') and entity.onCreate()
 		return entity
