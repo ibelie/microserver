@@ -24,19 +24,19 @@ def writeVarint(write, data):
 
 def readVarint(buffer, offset):
 	s = x = 0
-	i = offset
-	l = len(buffer)
+	i = 0
+	l = len(buffer) - offset
 	while i < l:
-		b = ord(buffer[i])
+		b = ord(buffer[offset + i])
 		if b & 0x80:
 			x |= (b & 0x7f) << s
 			s += 7
 			i += 1
 			continue
-		elif i > 9 or i == 9 and b > 1:
+		elif i > 9 or (i == 9 and b > 1):
 			raise RuntimeError, 'Varint overflow: %s' % repr(buffer[offset:i])
 		x |= b << s
-		offset = i + 1
+		offset += i + 1
 		break
 	return x, offset
 

@@ -169,8 +169,9 @@ class BaseClient(object):
 		ID, offset = self.IDType[3](buffer, 0)
 		if self.Symbols is None:
 			offset, self.Symbols, self.Dictionary = common.readSymbols(buffer, offset)
+			k, offset = self.IDType[3](buffer, offset)
 			t, offset = common.readVarint(buffer, offset)
-			entity = self.CreateEntity(ID, self.IDType[0], self.Dictionary[t])
+			entity = self.CreateEntity(ID, k, self.Dictionary[t])
 			self.entities[ID] = entity
 		elif ID not in self.entities:
 			print '[Connection] Cannot find entity:', ID
