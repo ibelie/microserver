@@ -155,9 +155,10 @@ func Unpack(pack []byte) (data []byte, err error) {
 		length |= int(b&0x7f) << x
 		x += 7
 	}
-	length += offset
-	if offset != 0 && length <= l {
-		data = pack[offset:length]
+	if offset != 0 && length+offset <= l {
+		data = make([]byte, length)
+		length += offset
+		copy(data, pack[offset:length])
 		copy(pack, pack[length:])
 		pack = pack[:l-length]
 	}
