@@ -97,14 +97,14 @@ class Component(object):
 	def __init__(self, entity):
 		self.Entity = entity
 		import proto
-		typyCls = getattr(proto, self.__class__.__name__, None)
-		self.____typyInst__ = typyCls and typyCls()
+		typyDelegate = getattr(proto, self.__class__.__name__, None)
+		self.____typyDelegate__ = typyDelegate and typyDelegate()
 
 	def __getattr__(self, key):
-		return getattr(self.____typyInst__, key)
+		return getattr(self.____typyDelegate__, key)
 
 	def Deserialize(self, data):
-		self.____typyInst__ and self.____typyInst__.MergeFromString(data)
+		self.____typyDelegate__ and self.____typyDelegate__.MergeFromString(data)
 
 	def Awake(self, e):
 		if e.isAwake:
@@ -181,10 +181,21 @@ class Entity(object):
 		self.isAwake = False
 		self.ID = ID or client.IDType[0]
 		self.Key = Key or client.IDType[0]
-		if Type is None:
-			self.Type = 0
+		self.Type = Type or 0
+
+	def __getattr__(self, key):
+		import proto
+		for component in self.components:
+			name = '%s_%sParam' % (component, key)
+			if hasattr(proto, name):
+				typyDelegate = getattr(proto, name)
+				break
 		else:
-			self.Type = client.Symbols[Type]
+			raise AttributeError, 'Message "%s" does not exist.' % key
+		def Message(self, *args):
+			self.client.message(self, self.client.Symbols[key], typyDelegate(*args).SerializeToString())
+		setattr(Entity, key, Message)
+		return object.__getattribute__(self, key)
 
 	def ByteSize(self):
 		size = common.sizeVarint(self.Type << 2)
@@ -294,7 +305,7 @@ class BaseClient(object):
 
 	def CreateEntity(self, i, k, t):
 		eType = MetaEntity.Entities[t]
-		entity = eType(self, i, k, t)
+		entity = eType(self, i, k, self.Symbols[t])
 		components = {}
 		for cName, cType in eType.____components__.iteritems():
 			component = cType(entity)
