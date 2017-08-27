@@ -232,7 +232,8 @@ class Entity(object):
 
 
 class BaseClient(object):
-	def __init__(self):
+
+	def connect(self):
 		self.entities = {}
 		self.Symbols = None
 		self.Dictionary = None

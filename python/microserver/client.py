@@ -23,6 +23,7 @@ class TcpClient(classes.BaseClient):
 		thread.start_new_thread(self.recv, ())
 
 	def connect(self):
+		super(TcpClient, self).connect()
 		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 5)
 		self.socket.connect((self.ip, self.port))
