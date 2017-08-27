@@ -238,6 +238,7 @@ class BaseClient(object):
 		self.Dictionary = None
 
 	def handler(self, buffer):
+		import proto
 		ID, offset = self.IDType[3](buffer, 0)
 		if self.Symbols is None:
 			offset, self.Symbols, self.Dictionary = common.readSymbols(buffer, offset)
@@ -265,9 +266,11 @@ class BaseClient(object):
 				p, off = common.readVarint(buf, off)
 				compName = self.Dictionary[c]
 				propName = self.Dictionary[p]
-				newValue = common[compName]['Deserialize' + propName](buffer.Bytes())[0]
+				delegate = getattr(proto, '%s_%s' % (compName, propName))()
+				delegate.MergeFromString(buf[off:])
+				newValue = delegate.Args()[0]
 				component = entity.components[compName]
-				oldValue = component[propName]
+				oldValue = getattr(component, propName)
 				handler = getattr(component, propName + 'Handler', None)
 				if hasattr(newValue, 'iteritems'):
 					for k, n in newValue.iteritems():
@@ -279,10 +282,19 @@ class BaseClient(object):
 					oldValue.extend(newValue)
 					handler and handler(oldValue[:length], newValue)
 				else:
-					component[propName] = newValue
+					setattr(component, propName, newValue)
 					handler and handler(oldValue, newValue)
 			else:
-				args = entity['Deserialize' + name](buf)
+				for component in entity.components:
+					delegateName = '%s_%sParam' % (component, name)
+					if hasattr(proto, delegateName):
+						delegateCls = getattr(proto, delegateName)
+						break
+				else:
+					raise AttributeError, 'Message "%s" does not exist.' % name
+				delegate = delegateCls()
+				delegate.MergeFromString(buf)
+				args = delegate.Args()
 				for n in entity.____msgComponents__[name]:
 					getattr(entity.components[n], name)(*args)
 
