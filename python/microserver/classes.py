@@ -14,15 +14,9 @@ try:
 		def __new__(mcs, clsname, bases, attrs):
 			return getattr(_proto, '%s_Declare' % clsname)
 
-	class Enum(object):
-		__metaclass__ = MetaEnum
-
 	class MetaObject(type):
 		def __new__(mcs, clsname, bases, attrs):
 			return getattr(_proto, clsname)(attrs)
-
-	class Object(object):
-		__metaclass__ = MetaObject
 
 except ImportError:
 	_client = None
@@ -36,15 +30,17 @@ except ImportError:
 		def __new__(mcs, clsname, bases, attrs):
 			return (proto and getattr(proto, clsname)) or super(MetaEnum, mcs).__new__(mcs, clsname, bases, attrs)
 
-	class Enum(object):
-		__metaclass__ = MetaEnum
-
 	class MetaObject(type):
 		def __new__(mcs, clsname, bases, attrs):
 			return (proto and getattr(proto, clsname)) or super(MetaObject, mcs).__new__(mcs, clsname, bases, attrs)
 
-	class Object(object):
-		__metaclass__ = MetaObject
+
+class Enum(object):
+	__metaclass__ = MetaEnum
+
+
+class Object(object):
+	__metaclass__ = MetaObject
 
 
 def Property(func):
