@@ -21,18 +21,14 @@ try:
 except ImportError:
 	_client = None
 
-	try:
-		import proto
-	except ImportError:
-		proto = None
-
-	class MetaEnum(type):
+	class MetaProto(type):
 		def __new__(mcs, clsname, bases, attrs):
-			return (proto and getattr(proto, clsname)) or super(MetaEnum, mcs).__new__(mcs, clsname, bases, attrs)
-
-	class MetaObject(type):
-		def __new__(mcs, clsname, bases, attrs):
-			return (proto and getattr(proto, clsname)) or super(MetaObject, mcs).__new__(mcs, clsname, bases, attrs)
+			try:
+				import proto
+				return getattr(proto, clsname)
+			except ImportError:
+				return super(MetaProto, mcs).__new__(mcs, clsname, bases, attrs)
+	MetaEnum = MetaObject = MetaProto
 
 
 class Enum(object):
