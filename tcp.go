@@ -58,7 +58,7 @@ func (c *TcpConn) Receive() (data []byte, err error) {
 		} else {
 			c.data = Extend(c.data, c.buffer[:n])
 		}
-		if data, err = Unpack(c.data); err != nil {
+		if c.data, data, err = Unpack(c.data); err != nil {
 			err = fmt.Errorf("[Tcp] Connection %q error:\n>>>> %v", c.Address(), err)
 		} else if len(data) > 0 {
 			return
@@ -135,7 +135,8 @@ func Extend(buffer []byte, data []byte) []byte {
 	}
 }
 
-func Unpack(pack []byte) (data []byte, err error) {
+func Unpack(pack []byte) (remain []byte, data []byte, err error) {
+	remain = pack
 	l := len(pack)
 	if l <= 0 {
 		return
@@ -160,7 +161,7 @@ func Unpack(pack []byte) (data []byte, err error) {
 		length += offset
 		copy(data, pack[offset:length])
 		copy(pack, pack[length:])
-		pack = pack[:l-length]
+		remain = pack[:l-length]
 	}
 	return
 }
