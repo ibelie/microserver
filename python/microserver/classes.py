@@ -303,18 +303,17 @@ class BaseClient(object):
 				entity.components[name].onAwake()
 
 	def message(self, entity, method, data = None):
-		t = 0
+		t = self.SymDict[entity.Type] << 2
 		if entity.ID != self.IDType[0]:
 			t |= 1
 		if entity.Key != self.IDType[0]:
 			t |= 2
 		output = BytesIO()
-		common.write(chr(t))
+		common.writeVarint(t)
 		if entity.ID != self.IDType[0]:
 			self.IDType[2](output.write, entity.ID)
 		if entity.Key != self.IDType[0]:
 			self.IDType[2](output.write, entity.Key)
-		output.writeVarint(output.write, self.SymDict[entity.Type])
 		common.writeVarint(output.write, method)
 		if data is not None:
 			output.write(data)
