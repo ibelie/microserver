@@ -110,8 +110,8 @@ class Component(object):
 		client = self.Entity.client
 		if e.ID in client.entities:
 			client.entities[e.ID]
-		entity = client.CreateEntity(e.ID, e.Key, client.Dictionary[e.Type])
-		client.message(e, client.Symbols['OBSERVE'])
+		entity = client.CreateEntity(e.ID, e.Key, e.Type)
+		client.message(e, client.SymDict['OBSERVE'])
 		client.entities[entity.ID] = entity
 		return entity
 
@@ -127,7 +127,7 @@ class Component(object):
 
 		e.isAwake = False
 		client = self.Entity.client
-		client.message(e, client.Symbols['IGNORE'])
+		client.message(e, client.SymDict['IGNORE'])
 		del client.entities[e.ID]
 		return Entity(ID = e.ID, Key = e.Key, Type = e.Type)
 
@@ -177,7 +177,7 @@ class Entity(object):
 		self.isAwake = False
 		self.ID = ID or client.IDType[0]
 		self.Key = Key or client.IDType[0]
-		self.Type = Type or 0
+		self.Type = Type or ''
 
 	def __getattr__(self, key):
 		import proto
@@ -189,37 +189,35 @@ class Entity(object):
 		else:
 			raise AttributeError, 'Message "%s" does not exist.' % key
 		def Message(self, *args):
-			self.client.message(self, self.client.Symbols[key], typyDelegate(*args).SerializeToString())
+			self.client.message(self, self.client.SymDict[key], typyDelegate(*args).SerializeToString())
 		setattr(Entity, key, Message)
 		return object.__getattribute__(self, key)
 
 	def ByteSize(self):
-		size = common.sizeVarint(self.Type << 2)
+		size = 1 + len(self.Type)
 		if self.ID != self.client.IDType[0]:
 			size += self.client.IDType[1](self.ID)
 		if self.Key != self.client.IDType[0]:
 			size += self.client.IDType[1](self.Key)
 		return size
 
-	def SerializeUnsealed(self, write):
-		t = self.Type << 2
+	def Serialize(self):
+		t = 0
 		if self.ID != self.client.IDType[0]:
 			t |= 1
 		if self.Key != self.client.IDType[0]:
 			t |= 2
-		common.writeVarint(write, t)
-		if self.ID != self.client.IDType[0]:
-			self.client.IDType[2](write, self.ID)
-		if self.Key != self.client.IDType[0]:
-			self.client.IDType[2](write, self.Key)
-
-	def Serialize(self):
 		output = BytesIO()
-		self.SerializeUnsealed(output.write)
+		common.write(chr(t))
+		if self.ID != self.client.IDType[0]:
+			self.client.IDType[2](output.write, self.ID)
+		if self.Key != self.client.IDType[0]:
+			self.client.IDType[2](output.write, self.Key)
+		output.write(self.Type)
 		return output.getvalue()
 
 	def Deserialize(self, buffer):
-		t, offset = common.readVarint(buffer, 0)
+		t, offset = buffer[0], 1
 		if t & 1:
 			self.ID, offset = self.client.IDType[3](buffer, offset)
 		else:
@@ -228,7 +226,7 @@ class Entity(object):
 			self.Key, offset = self.client.IDType[3](buffer, offset)
 		else:
 			self.Key = self.client.IDType[0]
-		self.Type = t >> 2
+		self.Type = buffer[offset:]
 
 
 class BaseClient(object):
@@ -236,16 +234,16 @@ class BaseClient(object):
 	def connect(self):
 		self.entities = {}
 		self.Symbols = None
-		self.Dictionary = None
+		self.SymDict = None
 
 	def handler(self, buffer):
 		import proto
 		ID, offset = self.IDType[3](buffer, 0)
 		if self.Symbols is None:
-			offset, self.Symbols, self.Dictionary = common.readSymbols(buffer, offset)
+			offset, self.Symbols, self.SymDict = common.readSymbols(buffer, offset)
 			k, offset = self.IDType[3](buffer, offset)
 			t, offset = common.readVarint(buffer, offset)
-			entity = self.CreateEntity(ID, k, self.Dictionary[t])
+			entity = self.CreateEntity(ID, k, self.Symbols[t])
 			self.entities[ID] = entity
 		elif ID not in self.entities:
 			print '[Connection] Cannot find entity:', ID
@@ -255,7 +253,7 @@ class BaseClient(object):
 
 		while offset < len(buffer):
 			method, offset = common.readVarint(buffer, offset)
-			name = self.Dictionary[method]
+			name = self.Symbols[method]
 			buf, offset = common.readBytes(buffer, offset)
 			if name in entity.components:
 				entity.components[name].Deserialize(buf)
@@ -265,8 +263,8 @@ class BaseClient(object):
 			elif name == 'NOTIFY':
 				c, off = common.readVarint(buf, 0)
 				p, off = common.readVarint(buf, off)
-				compName = self.Dictionary[c]
-				propName = self.Dictionary[p]
+				compName = self.Symbols[c]
+				propName = self.Symbols[p]
 				delegate = getattr(proto, '%s_%s' % (compName, propName))()
 				delegate.MergeFromString(buf[off:])
 				newValue = delegate.Args()[0]
@@ -305,8 +303,18 @@ class BaseClient(object):
 				entity.components[name].onAwake()
 
 	def message(self, entity, method, data = None):
+		t = 0
+		if entity.ID != self.IDType[0]:
+			t |= 1
+		if entity.Key != self.IDType[0]:
+			t |= 2
 		output = BytesIO()
-		entity.SerializeUnsealed(output.write)
+		common.write(chr(t))
+		if entity.ID != self.IDType[0]:
+			self.IDType[2](output.write, entity.ID)
+		if entity.Key != self.IDType[0]:
+			self.IDType[2](output.write, entity.Key)
+		output.writeVarint(output.write, self.SymDict[entity.Type])
 		common.writeVarint(output.write, method)
 		if data is not None:
 			output.write(data)
@@ -314,7 +322,7 @@ class BaseClient(object):
 
 	def CreateEntity(self, i, k, t):
 		eType = MetaEntity.Entities[t]
-		entity = eType(self, i, k, self.Symbols[t])
+		entity = eType(self, i, k, t)
 		components = {}
 		for cName, cType in eType.____components__.iteritems():
 			component = cType(entity)

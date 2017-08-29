@@ -108,16 +108,16 @@ IDTypes = {
 
 
 def readSymbols(buffer, offset):
-	Symbols = {}
-	Dictionary = {}
+	Symbols = []
+	SymDict = {}
 	buf, offset = readBytes(buffer, offset)
-	off = 0
+	off = value = 0
 	while off < len(buf):
 		symbol, off = readBytes(buf, off)
-		value, off = readVarint(buf, off)
-		Symbols[symbol] = value
-		Dictionary[value] = symbol
-	return offset, Symbols, Dictionary
+		Symbols.append(symbol)
+		SymDict[symbol] = value
+		value += 1
+	return offset, Symbols, SymDict
 
 
 def pack(data):
