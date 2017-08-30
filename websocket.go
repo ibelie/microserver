@@ -16,6 +16,10 @@ import (
 	"net/http"
 )
 
+const EncodeWS = "-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+
+var WSEncoding = base64.NewEncoding(EncodeWS).WithPadding(base64.NoPadding)
+
 type WsConn struct {
 	*websocket.Conn
 }
@@ -25,7 +29,7 @@ func (c *WsConn) Address() string {
 }
 
 func (c *WsConn) Send(data []byte) (err error) {
-	message := base64.RawURLEncoding.EncodeToString(data)
+	message := WSEncoding.EncodeToString(data)
 	if err = c.Conn.SetWriteDeadline(time.Now().Add(time.Second * WRITE_DEADLINE)); err == nil {
 		err = websocket.Message.Send(c.Conn, message)
 	}
@@ -38,7 +42,7 @@ func (c *WsConn) Receive() (data []byte, err error) {
 		if err = websocket.Message.Receive(c.Conn, &message); err == io.EOF {
 			err = fmt.Errorf("[Websocket] Connection %q lost:\n>>>> %v", c.Address(), err)
 		} else if err == nil {
-			data, err = base64.RawURLEncoding.DecodeString(message)
+			data, err = WSEncoding.DecodeString(message)
 		}
 	}
 	return
