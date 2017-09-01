@@ -97,6 +97,9 @@ class Component(object):
 		typyDelegate = getattr(proto, self.__class__.__name__, None)
 		self.____typyDelegate__ = typyDelegate and typyDelegate()
 
+	def CreateEntity(self, i, k, t):
+		return self.Entity.client.CreateEntity(i, k, t)
+
 	def __getattr__(self, key):
 		return getattr(self.____typyDelegate__, key)
 
