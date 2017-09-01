@@ -5,6 +5,7 @@
 
 import common
 from io import BytesIO
+from typy import SymbolEncodedLen, EncodeSymbol, DecodeSymbol
 
 try:
 	import _client
@@ -194,7 +195,7 @@ class Entity(object):
 		return object.__getattribute__(self, key)
 
 	def ByteSize(self):
-		size = 1 + len(self.Type)
+		size = 1 + SymbolEncodedLen(self.Type)
 		if self.ID != self.client.IDType[0]:
 			size += self.client.IDType[1](self.ID)
 		if self.Key != self.client.IDType[0]:
@@ -208,12 +209,12 @@ class Entity(object):
 		if self.Key != self.client.IDType[0]:
 			t |= 2
 		output = BytesIO()
-		common.write(chr(t))
+		output.write(chr(t))
 		if self.ID != self.client.IDType[0]:
 			self.client.IDType[2](output.write, self.ID)
 		if self.Key != self.client.IDType[0]:
 			self.client.IDType[2](output.write, self.Key)
-		output.write(self.Type)
+		output.write(EncodeSymbol(self.Type))
 		return output.getvalue()
 
 	def Deserialize(self, buffer):
@@ -226,7 +227,7 @@ class Entity(object):
 			self.Key, offset = self.client.IDType[3](buffer, offset)
 		else:
 			self.Key = self.client.IDType[0]
-		self.Type = buffer[offset:]
+		self.Type = DecodeSymbol(buffer[offset:])
 
 
 class BaseClient(object):
@@ -309,7 +310,7 @@ class BaseClient(object):
 		if entity.Key != self.IDType[0]:
 			t |= 2
 		output = BytesIO()
-		common.writeVarint(t)
+		common.writeVarint(output.write, t)
 		if entity.ID != self.IDType[0]:
 			self.IDType[2](output.write, entity.ID)
 		if entity.Key != self.IDType[0]:

@@ -5,6 +5,7 @@
 
 import struct
 from io import BytesIO
+from typy import DecodeSymbol
 
 
 def sizeVarint(x):
@@ -52,7 +53,7 @@ def readBytes(buffer, offset):
 
 
 C2BMap = {}
-B2CMap = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + 'abcdefghijklmnopqrstuvwxyz' + '0123456789' + '-_'
+B2CMap = '-' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + 'abcdefghijklmnopqrstuvwxyz' + '0123456789' + '_'
 
 for i in xrange(len(B2CMap)):
 	C2BMap[B2CMap[i]] = i
@@ -101,8 +102,8 @@ def readBase64(buffer, offset, count):
 
 
 IDTypes = {
-	'RUID': ('AAAAAAAAAAA', lambda v: 8, writeBase64, lambda b, o: readBase64(b, o, 8)),
-	'UUID': ('AAAAAAAAAAAAAAAAAAAAAA', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
+	'RUID': ('-----------', lambda v: 8, writeBase64, lambda b, o: readBase64(b, o, 8)),
+	'UUID': ('----------------------', lambda v: 16, writeBase64, lambda b, o: readBase64(b, o, 16)),
 	'STRID': ('', lambda v: sizeVarint(len(v)) + len(v), writeBytes, readBytes),
 }
 
@@ -114,6 +115,7 @@ def readSymbols(buffer, offset):
 	off = value = 0
 	while off < len(buf):
 		symbol, off = readBytes(buf, off)
+		symbol = DecodeSymbol(symbol)
 		Symbols.append(symbol)
 		SymDict[symbol] = value
 		value += 1
