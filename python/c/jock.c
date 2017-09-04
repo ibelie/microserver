@@ -8,6 +8,19 @@
 extern "C" {
 #endif
 
+IblMap_KEY_NUMERIC(JockMap, SOCKET_T,
+	struct _IblJock jock;
+);
+
+#define SAS2SA(x) ((struct sockaddr *)(x))
+
+#if defined(MS_WINDOWS)
+#define SOCKETCLOSE closesocket
+#define NO_DUP /* Actually it exists on NT 3.5, but what the heck... */
+#else
+#define SOCKETCLOSE close
+#endif
+
 static double defaulttimeout = -1.0; /* Default timeout for new sockets */
 
 PyMODINIT_FUNC
@@ -95,6 +108,96 @@ internal_setblocking(PySocketSockObject *s, int block)
 	/* Since these don't return anything */
 	return 1;
 }
+
+static int
+internal_connect(PySocketSockObject *s, struct sockaddr *addr, int addrlen,
+				 int *timeoutp)
+{
+	int res, timeout;
+
+	timeout = 0;
+	res = connect(s->sock_fd, addr, addrlen);
+
+#ifdef MS_WINDOWS
+
+	if (s->sock_timeout > 0.0) {
+		if (res < 0 && WSAGetLastError() == WSAEWOULDBLOCK &&
+			IS_SELECTABLE(s)) {
+			/* This is a mess.  Best solution: trust select */
+			fd_set fds;
+			fd_set fds_exc;
+			struct timeval tv;
+			tv.tv_sec = (int)s->sock_timeout;
+			tv.tv_usec = (int)((s->sock_timeout - tv.tv_sec) * 1e6);
+			FD_ZERO(&fds);
+			FD_SET(s->sock_fd, &fds);
+			FD_ZERO(&fds_exc);
+			FD_SET(s->sock_fd, &fds_exc);
+			res = select(s->sock_fd+1, NULL, &fds, &fds_exc, &tv);
+			if (res == 0) {
+				res = WSAEWOULDBLOCK;
+				timeout = 1;
+			} else if (res > 0) {
+				if (FD_ISSET(s->sock_fd, &fds))
+					/* The socket is in the writeable set - this
+					   means connected */
+					res = 0;
+				else {
+					/* As per MS docs, we need to call getsockopt()
+					   to get the underlying error */
+					int res_size = sizeof res;
+					/* It must be in the exception set */
+					assert(FD_ISSET(s->sock_fd, &fds_exc));
+					if (0 == getsockopt(s->sock_fd, SOL_SOCKET, SO_ERROR,
+										(char *)&res, &res_size))
+						/* getsockopt also clears WSAGetLastError,
+						   so reset it back. */
+						WSASetLastError(res);
+					else
+						res = WSAGetLastError();
+				}
+			}
+			/* else if (res < 0) an error occurred */
+		}
+	}
+
+	if (res < 0)
+		res = WSAGetLastError();
+
+#else
+
+	if (s->sock_timeout > 0.0) {
+		if (res < 0 && errno == EINPROGRESS && IS_SELECTABLE(s)) {
+			timeout = internal_select(s, 1);
+			if (timeout == 0) {
+				/* Bug #1019808: in case of an EINPROGRESS,
+				   use getsockopt(SO_ERROR) to get the real
+				   error. */
+				socklen_t res_size = sizeof res;
+				(void)getsockopt(s->sock_fd, SOL_SOCKET,
+								 SO_ERROR, &res, &res_size);
+				if (res == EISCONN)
+					res = 0;
+				errno = res;
+			}
+			else if (timeout == -1) {
+				res = errno;            /* had error */
+			}
+			else
+				res = EWOULDBLOCK;                      /* timed out */
+		}
+	}
+
+	if (res < 0)
+		res = errno;
+
+#endif
+	*timeoutp = timeout;
+
+	return res;
+}
+
+/* s.connect(sockaddr) method */
 
 static PyObject *
 sock_connect(PySocketSockObject *s, PyObject *addro)

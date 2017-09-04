@@ -11,7 +11,22 @@
 extern "C" {
 #endif
 
+typedef struct _IblJock {
+	SOCKET_T        sock_fd;     /* Socket file descriptor */
+	int             sock_family; /* Address family, e.g., AF_INET */
+	int             sock_type;   /* Socket type, e.g., SOCK_STREAM */
+	int             sock_proto;  /* Protocol type, usually 0 */
+	struct sockaddr sock_addr;
+} *IblJock;
 
+typedef void   (*IblJock_HandleConnect) (IblJock);
+typedef void   (*IblJock_HandleClose)   (IblJock);
+typedef size_t (*IblJock_HandleRead)    (IblJock);
+
+IblAPI(IblJock) IblJock_New     (int, int, int, char*, int);
+IblAPI(bool)    IblJock_Connect (IblJock);
+IblAPI(bool)    IblJock_Close   (IblJock);
+IblAPI(bool)    IblJock_Write   (IblJock, byte*, size_t);
 
 #ifdef __cplusplus
 }
