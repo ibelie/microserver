@@ -12,25 +12,25 @@ static double defaulttimeout = -1.0; /* Default timeout for new sockets */
 
 PyMODINIT_FUNC
 init_sockobject(PySocketSockObject *s,
-                SOCKET_T fd, int family, int type, int proto)
+				SOCKET_T fd, int family, int type, int proto)
 {
 #ifdef RISCOS
-    int block = 1;
+	int block = 1;
 #endif
-    s->sock_fd = fd;
-    s->sock_family = family;
-    s->sock_type = type;
-    s->sock_proto = proto;
-    s->sock_timeout = defaulttimeout;
+	s->sock_fd = fd;
+	s->sock_family = family;
+	s->sock_type = type;
+	s->sock_proto = proto;
+	s->sock_timeout = defaulttimeout;
 
-    s->errorhandler = &set_error;
+	s->errorhandler = &set_error;
 
-    if (defaulttimeout >= 0.0)
-        internal_setblocking(s, 0);
+	if (defaulttimeout >= 0.0)
+		internal_setblocking(s, 0);
 
 #ifdef RISCOS
-    if (taskwindow)
-        socketioctl(s->sock_fd, 0x80046679, (u_long*)&block);
+	if (taskwindow)
+		socketioctl(s->sock_fd, 0x80046679, (u_long*)&block);
 #endif
 }
 
@@ -82,6 +82,54 @@ sock_initobj(PyObject *self, PyObject *args, PyObject *kwds)
 
 	return 0;
 
+}
+
+/* Function to perform the setting of socket blocking mode
+   internally. block = (1 | 0). */
+static int
+internal_setblocking(PySocketSockObject *s, int block)
+{
+#ifndef RISCOS
+#ifndef MS_WINDOWS
+	int delay_flag;
+#endif
+#endif
+
+	Py_BEGIN_ALLOW_THREADS
+#ifdef __BEOS__
+	block = !block;
+	setsockopt(s->sock_fd, SOL_SOCKET, SO_NONBLOCK,
+			   (void *)(&block), sizeof(int));
+#else
+#ifndef RISCOS
+#ifndef MS_WINDOWS
+#if defined(PYOS_OS2) && !defined(PYCC_GCC)
+	block = !block;
+	ioctl(s->sock_fd, FIONBIO, (caddr_t)&block, sizeof(block));
+#elif defined(__VMS)
+	block = !block;
+	ioctl(s->sock_fd, FIONBIO, (unsigned int *)&block);
+#else  /* !PYOS_OS2 && !__VMS */
+	delay_flag = fcntl(s->sock_fd, F_GETFL, 0);
+	if (block)
+		delay_flag &= (~O_NONBLOCK);
+	else
+		delay_flag |= O_NONBLOCK;
+	fcntl(s->sock_fd, F_SETFL, delay_flag);
+#endif /* !PYOS_OS2 */
+#else /* MS_WINDOWS */
+	block = !block;
+	ioctlsocket(s->sock_fd, FIONBIO, (u_long*)&block);
+#endif /* MS_WINDOWS */
+#else /* RISCOS */
+	block = !block;
+	socketioctl(s->sock_fd, FIONBIO, (u_long*)&block);
+#endif /* RISCOS */
+#endif /* __BEOS__ */
+	Py_END_ALLOW_THREADS
+
+	/* Since these don't return anything */
+	return 1;
 }
 
 static PyObject *
@@ -297,6 +345,132 @@ Send a data string to the socket.  For the optional flags\n\
 argument, see the Unix manual.  This calls send() repeatedly\n\
 until all data is sent.  If an error occurs, it's impossible\n\
 to tell how much data has been sent.");
+
+static PyObject *
+select_select(PyObject *self, PyObject *args)
+{
+#ifdef SELECT_USES_HEAP
+	pylist *rfd2obj, *wfd2obj, *efd2obj;
+#else  /* !SELECT_USES_HEAP */
+	/* XXX: All this should probably be implemented as follows:
+	 * - find the highest descriptor we're interested in
+	 * - add one
+	 * - that's the size
+	 * See: Stevens, APitUE, $12.5.1
+	 */
+	pylist rfd2obj[FD_SETSIZE + 1];
+	pylist wfd2obj[FD_SETSIZE + 1];
+	pylist efd2obj[FD_SETSIZE + 1];
+#endif /* SELECT_USES_HEAP */
+	PyObject *ifdlist, *ofdlist, *efdlist;
+	PyObject *ret = NULL;
+	PyObject *tout = Py_None;
+	fd_set ifdset, ofdset, efdset;
+	double timeout;
+	struct timeval tv, *tvp;
+	long seconds;
+	int imax, omax, emax, max;
+	int n;
+
+	/* convert arguments */
+	if (!PyArg_UnpackTuple(args, "select", 3, 4,
+						  &ifdlist, &ofdlist, &efdlist, &tout))
+		return NULL;
+
+	if (tout == Py_None)
+		tvp = (struct timeval *)0;
+	else if (!PyNumber_Check(tout)) {
+		PyErr_SetString(PyExc_TypeError,
+						"timeout must be a float or None");
+		return NULL;
+	}
+	else {
+		timeout = PyFloat_AsDouble(tout);
+		if (timeout == -1 && PyErr_Occurred())
+			return NULL;
+		if (timeout > (double)LONG_MAX) {
+			PyErr_SetString(PyExc_OverflowError,
+							"timeout period too long");
+			return NULL;
+		}
+		seconds = (long)timeout;
+		timeout = timeout - (double)seconds;
+		tv.tv_sec = seconds;
+		tv.tv_usec = (long)(timeout * 1E6);
+		tvp = &tv;
+	}
+
+
+#ifdef SELECT_USES_HEAP
+	/* Allocate memory for the lists */
+	rfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
+	wfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
+	efd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
+	if (rfd2obj == NULL || wfd2obj == NULL || efd2obj == NULL) {
+		if (rfd2obj) PyMem_DEL(rfd2obj);
+		if (wfd2obj) PyMem_DEL(wfd2obj);
+		if (efd2obj) PyMem_DEL(efd2obj);
+		return PyErr_NoMemory();
+	}
+#endif /* SELECT_USES_HEAP */
+	/* Convert sequences to fd_sets, and get maximum fd number
+	 * propagates the Python exception set in seq2set()
+	 */
+	rfd2obj[0].sentinel = -1;
+	wfd2obj[0].sentinel = -1;
+	efd2obj[0].sentinel = -1;
+	if ((imax=seq2set(ifdlist, &ifdset, rfd2obj)) < 0)
+		goto finally;
+	if ((omax=seq2set(ofdlist, &ofdset, wfd2obj)) < 0)
+		goto finally;
+	if ((emax=seq2set(efdlist, &efdset, efd2obj)) < 0)
+		goto finally;
+	max = imax;
+	if (omax > max) max = omax;
+	if (emax > max) max = emax;
+
+	Py_BEGIN_ALLOW_THREADS
+	n = select(max, &ifdset, &ofdset, &efdset, tvp);
+	Py_END_ALLOW_THREADS
+
+#ifdef MS_WINDOWS
+	if (n == SOCKET_ERROR) {
+		PyErr_SetExcFromWindowsErr(SelectError, WSAGetLastError());
+	}
+#else
+	if (n < 0) {
+		PyErr_SetFromErrno(SelectError);
+	}
+#endif
+	else {
+		/* any of these three calls can raise an exception.  it's more
+		   convenient to test for this after all three calls... but
+		   is that acceptable?
+		*/
+		ifdlist = set2list(&ifdset, rfd2obj);
+		ofdlist = set2list(&ofdset, wfd2obj);
+		efdlist = set2list(&efdset, efd2obj);
+		if (PyErr_Occurred())
+			ret = NULL;
+		else
+			ret = PyTuple_Pack(3, ifdlist, ofdlist, efdlist);
+
+		Py_DECREF(ifdlist);
+		Py_DECREF(ofdlist);
+		Py_DECREF(efdlist);
+	}
+
+  finally:
+	reap_obj(rfd2obj);
+	reap_obj(wfd2obj);
+	reap_obj(efd2obj);
+#ifdef SELECT_USES_HEAP
+	PyMem_DEL(rfd2obj);
+	PyMem_DEL(wfd2obj);
+	PyMem_DEL(efd2obj);
+#endif /* SELECT_USES_HEAP */
+	return ret;
+}
 
 #ifdef __cplusplus
 }
