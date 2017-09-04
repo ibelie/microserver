@@ -3,58 +3,59 @@
 # Use of this source code is governed by The MIT License
 # that can be found in the LICENSE file.
 
+import io
 import socket
-import thread
 import common
 import classes
+import asyncore
 import traceback
 
 
-class TcpClient(classes.BaseClient):
+def Update(timeout = 0.01):
+	asyncore.loop(timeout = timeout, use_poll = True, count = 1)
+
+
+class TcpClient(classes.BaseClient, asyncore.dispatcher):
 	BUFFER_SIZE = 4096
 
-	def __init__(self, ip, port):
+	def __init__(self, host, port):
 		super(TcpClient, self).__init__()
+		asyncore.dispatcher.__init__(self)
 		import proto
 		self.IDType = common.IDTypes[proto.IDType]
-		self.ip = ip
+		self.write_buffer = io.BytesIO()
+		self.read_buffer = ''
+		self.host = host
 		self.port = port
-		self.connect()
-		thread.start_new_thread(self.recv, ())
+		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.connect((self.host, self.port))
 
-	def connect(self):
-		super(TcpClient, self).connect()
-		self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 5)
-		self.socket.connect((self.ip, self.port))
+	def handle_connect(self):
+		self.onConnect()
 
-	def disconnect(self):
-		self.socket.close()
-		self.socket = None
+	def handle_close(self):
+		self.close()
+		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.connect((self.host, self.port))
 
-	def recv(self):
-		buffer = None
-		while 1:
+	def handle_read(self):
+		self.read_buffer += self.recv(self.BUFFER_SIZE)
+		data, self.read_buffer = common.unpack(self.read_buffer)
+		if data is not None:
 			try:
-				if buffer is None:
-					buffer = self.socket.recv(self.BUFFER_SIZE)
-				else:
-					buffer += self.socket.recv(self.BUFFER_SIZE)
-				data, buffer = common.unpack(buffer)
-				if data is None:
-					continue
-
 				self.handler(data)
-
-			except socket.error as e:
-				print '[microserver] Socket error, reconnect:', e
-				self.disconnect()
-				self.connect()
 			except Exception as e:
 				print '[microserver] Client receive error:', e
 				traceback.print_exc()
-				break
-		self.socket.close()
 
-	def send(self, data):
-		self.socket.sendall(common.pack(data))
+	def handle_write(self):
+		data = self.write_buffer.getvalue()
+		if data:
+			self.write_buffer = io.BytesIO(data[self.send(data):])
+			self.write_buffer.seek(0, io.SEEK_END)
+
+	def writable(self):
+		return self.write_buffer and self.write_buffer.getvalue()
+
+	def sendData(self, data):
+		self.write_buffer.write(common.pack(data))

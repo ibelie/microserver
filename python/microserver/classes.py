@@ -234,8 +234,10 @@ class Entity(object):
 
 
 class BaseClient(object):
+	def sendData(self):
+		raise NotImplementedError
 
-	def connect(self):
+	def onConnect(self):
 		self.entities = {}
 		self.Symbols = None
 		self.SymDict = None
@@ -321,7 +323,7 @@ class BaseClient(object):
 		common.writeVarint(output.write, method)
 		if data is not None:
 			output.write(data)
-		self.send(output.getvalue())
+		self.sendData(output.getvalue())
 
 	def CreateEntity(self, i, k, t):
 		eType = MetaEntity.Entities[t]

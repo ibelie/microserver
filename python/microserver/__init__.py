@@ -6,10 +6,10 @@
 __version__ = '0.0.1'
 
 try:
-	from _client import TcpClient
+	from _client import TcpClient, Update
 	IMPLEMENTATION_TYPE = 'c'
 except ImportError:
-	from client import TcpClient
+	from client import TcpClient, Update
 	IMPLEMENTATION_TYPE = 'python'
 
 from classes import MetaEntity, Entity
