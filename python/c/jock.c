@@ -4,24 +4,40 @@
 
 #include "jock.h"
 
+#ifdef MS_WINDOWS
+#	define SOCKETCLOSE closesocket
+#else
+#	define SOCKETCLOSE close
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 IblMap_KEY_NUMERIC(JockMap, SOCKET_T,
 	struct _IblJock jock;
+	struct sockaddr addr;
 );
 
-#define SAS2SA(x) ((struct sockaddr *)(x))
+void IblJock_Update(double timeout) {
 
-#if defined(MS_WINDOWS)
-#define SOCKETCLOSE closesocket
-#define NO_DUP /* Actually it exists on NT 3.5, but what the heck... */
-#else
-#define SOCKETCLOSE close
-#endif
+}
 
-static double defaulttimeout = -1.0; /* Default timeout for new sockets */
+SOCKET_T IblJock_Connect(IblJock jock, char* host, int port) {
+
+}
+
+SOCKET_T IblJock_Reconnect(IblJock jock, struct sockaddr *addr) {
+
+}
+
+bool IblJock_Close(SOCKET_T fd) {
+
+}
+
+bool IblJock_Write(SOCKET_T fd, byte* data, size_t length) {
+
+}
 
 PyMODINIT_FUNC
 init_sockobject(PySocketSockObject *s,

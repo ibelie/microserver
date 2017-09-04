@@ -11,22 +11,24 @@
 extern "C" {
 #endif
 
+typedef void   (*IblJock_HandleConnect) (SOCKET_T, struct sockaddr *);
+typedef void   (*IblJock_HandleClose)   (SOCKET_T, struct sockaddr *);
+typedef size_t (*IblJock_HandleRead)    (SOCKET_T, struct sockaddr *);
+
 typedef struct _IblJock {
-	SOCKET_T        sock_fd;     /* Socket file descriptor */
-	int             sock_family; /* Address family, e.g., AF_INET */
-	int             sock_type;   /* Socket type, e.g., SOCK_STREAM */
-	int             sock_proto;  /* Protocol type, usually 0 */
-	struct sockaddr sock_addr;
+	int sock_family; /* Address family, e.g., AF_INET */
+	int sock_type;   /* Socket type, e.g., SOCK_STREAM */
+	int sock_proto;  /* Protocol type, usually 0 */
+	IblJock_HandleConnect handle_connect;
+	IblJock_HandleClose   handle_close;
+	IblJock_HandleRead    handle_read;
 } *IblJock;
 
-typedef void   (*IblJock_HandleConnect) (IblJock);
-typedef void   (*IblJock_HandleClose)   (IblJock);
-typedef size_t (*IblJock_HandleRead)    (IblJock);
-
-IblAPI(IblJock) IblJock_New     (int, int, int, char*, int);
-IblAPI(bool)    IblJock_Connect (IblJock);
-IblAPI(bool)    IblJock_Close   (IblJock);
-IblAPI(bool)    IblJock_Write   (IblJock, byte*, size_t);
+IblAPI(SOCKET_T) IblJock_Connect   (IblJock, char*, int);
+IblAPI(SOCKET_T) IblJock_Reconnect (IblJock, struct sockaddr *);
+IblAPI(bool)     IblJock_Close     (SOCKET_T);
+IblAPI(bool)     IblJock_Write     (SOCKET_T, byte*, size_t);
+IblAPI(void)     IblJock_Update    (double);
 
 #ifdef __cplusplus
 }
