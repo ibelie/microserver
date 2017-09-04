@@ -14,9 +14,6 @@ PyMODINIT_FUNC
 init_sockobject(PySocketSockObject *s,
 				SOCKET_T fd, int family, int type, int proto)
 {
-#ifdef RISCOS
-	int block = 1;
-#endif
 	s->sock_fd = fd;
 	s->sock_family = family;
 	s->sock_type = type;
@@ -27,11 +24,6 @@ init_sockobject(PySocketSockObject *s,
 
 	if (defaulttimeout >= 0.0)
 		internal_setblocking(s, 0);
-
-#ifdef RISCOS
-	if (taskwindow)
-		socketioctl(s->sock_fd, 0x80046679, (u_long*)&block);
-#endif
 }
 
 /* Create a new, uninitialized socket object. */
@@ -65,9 +57,7 @@ sock_initobj(PyObject *self, PyObject *args, PyObject *kwds)
 									 &family, &type, &proto))
 		return -1;
 
-	Py_BEGIN_ALLOW_THREADS
 	fd = socket(family, type, proto);
-	Py_END_ALLOW_THREADS
 
 #ifdef MS_WINDOWS
 	if (fd == INVALID_SOCKET)
@@ -89,44 +79,18 @@ sock_initobj(PyObject *self, PyObject *args, PyObject *kwds)
 static int
 internal_setblocking(PySocketSockObject *s, int block)
 {
-#ifndef RISCOS
-#ifndef MS_WINDOWS
+#ifdef MS_WINDOWS
+	block = !block;
+	ioctlsocket(s->sock_fd, FIONBIO, (u_long*)&block);
+#else /* MS_WINDOWS */
 	int delay_flag;
-#endif
-#endif
-
-	Py_BEGIN_ALLOW_THREADS
-#ifdef __BEOS__
-	block = !block;
-	setsockopt(s->sock_fd, SOL_SOCKET, SO_NONBLOCK,
-			   (void *)(&block), sizeof(int));
-#else
-#ifndef RISCOS
-#ifndef MS_WINDOWS
-#if defined(PYOS_OS2) && !defined(PYCC_GCC)
-	block = !block;
-	ioctl(s->sock_fd, FIONBIO, (caddr_t)&block, sizeof(block));
-#elif defined(__VMS)
-	block = !block;
-	ioctl(s->sock_fd, FIONBIO, (unsigned int *)&block);
-#else  /* !PYOS_OS2 && !__VMS */
 	delay_flag = fcntl(s->sock_fd, F_GETFL, 0);
 	if (block)
 		delay_flag &= (~O_NONBLOCK);
 	else
 		delay_flag |= O_NONBLOCK;
 	fcntl(s->sock_fd, F_SETFL, delay_flag);
-#endif /* !PYOS_OS2 */
-#else /* MS_WINDOWS */
-	block = !block;
-	ioctlsocket(s->sock_fd, FIONBIO, (u_long*)&block);
 #endif /* MS_WINDOWS */
-#else /* RISCOS */
-	block = !block;
-	socketioctl(s->sock_fd, FIONBIO, (u_long*)&block);
-#endif /* RISCOS */
-#endif /* __BEOS__ */
-	Py_END_ALLOW_THREADS
 
 	/* Since these don't return anything */
 	return 1;
@@ -143,9 +107,7 @@ sock_connect(PySocketSockObject *s, PyObject *addro)
 	if (!getsockaddrarg(s, addro, SAS2SA(&addrbuf), &addrlen))
 		return NULL;
 
-	Py_BEGIN_ALLOW_THREADS
 	res = internal_connect(s, SAS2SA(&addrbuf), addrlen, &timeout);
-	Py_END_ALLOW_THREADS
 
 	if (timeout == 1) {
 		PyErr_SetString(socket_timeout, "timed out");
@@ -174,9 +136,7 @@ sock_close(PySocketSockObject *s)
 
 	if ((fd = s->sock_fd) != -1) {
 		s->sock_fd = -1;
-		Py_BEGIN_ALLOW_THREADS
 		(void) SOCKETCLOSE(fd);
-		Py_END_ALLOW_THREADS
 	}
 	Py_INCREF(Py_None);
 	return Py_None;
@@ -293,17 +253,11 @@ sock_sendall(PySocketSockObject *s, PyObject *args)
 
 	do {
 		BEGIN_SELECT_LOOP(s)
-		Py_BEGIN_ALLOW_THREADS
 		timeout = internal_select_ex(s, 1, interval);
 		n = -1;
 		if (!timeout) {
-#ifdef __VMS
-			n = sendsegmented(s->sock_fd, buf, len, flags);
-#else
 			n = send(s->sock_fd, buf, len, flags);
-#endif
 		}
-		Py_END_ALLOW_THREADS
 		if (timeout == 1) {
 			PyBuffer_Release(&pbuf);
 			PyErr_SetString(socket_timeout, "timed out");
@@ -429,9 +383,7 @@ select_select(PyObject *self, PyObject *args)
 	if (omax > max) max = omax;
 	if (emax > max) max = emax;
 
-	Py_BEGIN_ALLOW_THREADS
 	n = select(max, &ifdset, &ofdset, &efdset, tvp);
-	Py_END_ALLOW_THREADS
 
 #ifdef MS_WINDOWS
 	if (n == SOCKET_ERROR) {
