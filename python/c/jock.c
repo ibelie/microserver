@@ -14,296 +14,155 @@
 extern "C" {
 #endif
 
-IblMap_KEY_NUMERIC(JockMap, SOCKET_T,
-	struct _IblJock jock;
+IblMap_KEY_NUMERIC(JockMap, IblSock,
+	IblJock jock;
 	struct sockaddr addr;
 );
 
-void IblJock_Update(double timeout) {
-
-}
-
-SOCKET_T IblJock_Connect(IblJock jock, char* host, int port) {
-
-}
-
-SOCKET_T IblJock_Reconnect(IblJock jock, struct sockaddr *addr) {
-
-}
-
-bool IblJock_Close(SOCKET_T fd) {
-
-}
-
-bool IblJock_Write(SOCKET_T fd, byte* data, size_t length) {
-
-}
-
-PyMODINIT_FUNC
-init_sockobject(PySocketSockObject *s,
-				SOCKET_T fd, int family, int type, int proto)
-{
-	s->sock_fd = fd;
-	s->sock_family = family;
-	s->sock_type = type;
-	s->sock_proto = proto;
-	s->sock_timeout = defaulttimeout;
-
-	s->errorhandler = &set_error;
-
-	if (defaulttimeout >= 0.0)
-		internal_setblocking(s, 0);
-}
-
-/* Create a new, uninitialized socket object. */
-
-static PyObject *
-sock_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
-{
-	PyObject *new;
-
-	new = type->tp_alloc(type, 0);
-	if (new != NULL) {
-		((PySocketSockObject *)new)->sock_fd = -1;
-		((PySocketSockObject *)new)->sock_timeout = -1.0;
-		((PySocketSockObject *)new)->errorhandler = &set_error;
-	}
-	return new;
-}
-
-/* Initialize a new socket object. */
-
-static int
-sock_initobj(PyObject *self, PyObject *args, PyObject *kwds)
-{
-	PySocketSockObject *s = (PySocketSockObject *)self;
-	SOCKET_T fd;
-	int family = AF_INET, type = SOCK_STREAM, proto = 0;
-	static char *keywords[] = {"family", "type", "proto", 0};
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds,
-									 "|iii:socket", keywords,
-									 &family, &type, &proto))
-		return -1;
-
-	fd = socket(family, type, proto);
-
+static void _PrintError(void) {
 #ifdef MS_WINDOWS
-	if (fd == INVALID_SOCKET)
-#else
-	if (fd < 0)
-#endif
-	{
-		set_error();
-		return -1;
-	}
-	init_sockobject(s, fd, family, type, proto);
-
-	return 0;
-
-}
-
-/* Function to perform the setting of socket blocking mode
-   internally. block = (1 | 0). */
-static int
-internal_setblocking(PySocketSockObject *s, int block)
-{
-#ifdef MS_WINDOWS
-	block = !block;
-	ioctlsocket(s->sock_fd, FIONBIO, (u_long*)&block);
-#else /* MS_WINDOWS */
-	int delay_flag;
-	delay_flag = fcntl(s->sock_fd, F_GETFL, 0);
-	if (block)
-		delay_flag &= (~O_NONBLOCK);
-	else
-		delay_flag |= O_NONBLOCK;
-	fcntl(s->sock_fd, F_SETFL, delay_flag);
-#endif /* MS_WINDOWS */
-
-	/* Since these don't return anything */
-	return 1;
-}
-
-static int
-internal_connect(PySocketSockObject *s, struct sockaddr *addr, int addrlen,
-				 int *timeoutp)
-{
-	int res, timeout;
-
-	timeout = 0;
-	res = connect(s->sock_fd, addr, addrlen);
-
-#ifdef MS_WINDOWS
-
-	if (s->sock_timeout > 0.0) {
-		if (res < 0 && WSAGetLastError() == WSAEWOULDBLOCK &&
-			IS_SELECTABLE(s)) {
-			/* This is a mess.  Best solution: trust select */
-			fd_set fds;
-			fd_set fds_exc;
-			struct timeval tv;
-			tv.tv_sec = (int)s->sock_timeout;
-			tv.tv_usec = (int)((s->sock_timeout - tv.tv_sec) * 1e6);
-			FD_ZERO(&fds);
-			FD_SET(s->sock_fd, &fds);
-			FD_ZERO(&fds_exc);
-			FD_SET(s->sock_fd, &fds_exc);
-			res = select(s->sock_fd+1, NULL, &fds, &fds_exc, &tv);
-			if (res == 0) {
-				res = WSAEWOULDBLOCK;
-				timeout = 1;
-			} else if (res > 0) {
-				if (FD_ISSET(s->sock_fd, &fds))
-					/* The socket is in the writeable set - this
-					   means connected */
-					res = 0;
-				else {
-					/* As per MS docs, we need to call getsockopt()
-					   to get the underlying error */
-					int res_size = sizeof res;
-					/* It must be in the exception set */
-					assert(FD_ISSET(s->sock_fd, &fds_exc));
-					if (0 == getsockopt(s->sock_fd, SOL_SOCKET, SO_ERROR,
-										(char *)&res, &res_size))
-						/* getsockopt also clears WSAGetLastError,
-						   so reset it back. */
-						WSASetLastError(res);
-					else
-						res = WSAGetLastError();
-				}
+	char *s_buf = NULL; /* Free via LocalFree */
+	DWORD err = (DWORD)WSAGetLastError();
+	if (err || errno < 0 || errno >= _sys_nerr) {
+		if (!err) { err = (DWORD)errno; }
+		register int len = FormatMessage(
+			/* Error API error */
+			FORMAT_MESSAGE_ALLOCATE_BUFFER |
+			FORMAT_MESSAGE_FROM_SYSTEM |
+			FORMAT_MESSAGE_IGNORE_INSERTS,
+			NULL,  /* no message source */
+			err,
+			MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), /* Default language */
+			(LPTSTR) &s_buf,
+			0,     /* size not used */
+			NULL); /* no args */
+		if (len == 0) {
+			/* Only seen this in out of mem situations */
+			IblPrint_Err("[Jock] Windows Error 0x%X.\n", err);
+			s_buf = NULL;
+		} else {
+			/* remove trailing cr/lf and dots */
+			while (len > 0 && (s_buf[len-1] <= ' ' || s_buf[len-1] == '.')) {
+				s_buf[--len] = '\0';
 			}
-			/* else if (res < 0) an error occurred */
+			IblPrint_Err("[Jock] %s\n", s_buf);
+		}
+		LocalFree(s_buf);
+		return;
+	} else if (errno > 0) {
+		IblPrint_Err("[Jock] %s\n", _sys_errlist[errno]);
+		return;
+	}
+#endif
+
+	if (errno == 0) {
+		IblPrint_Err("[Jock] Error 0.\n");
+	} else {
+		IblPrint_Err("[Jock] %s\n", strerror(errno));
+	}
+}
+
+void IblJock_Initiate(IblJock jock) {
+	if (!jock->sock_map) {
+		jock->sock_map = JockMap_New();
+		if (!jock->sock_map) {
+			IblPrint_Err("[Jock] Initiate socket map failed.\n");
 		}
 	}
+}
 
-	if (res < 0)
-		res = WSAGetLastError();
-
-#else
-
-	if (s->sock_timeout > 0.0) {
-		if (res < 0 && errno == EINPROGRESS && IS_SELECTABLE(s)) {
-			timeout = internal_select(s, 1);
-			if (timeout == 0) {
-				/* Bug #1019808: in case of an EINPROGRESS,
-				   use getsockopt(SO_ERROR) to get the real
-				   error. */
-				socklen_t res_size = sizeof res;
-				(void)getsockopt(s->sock_fd, SOL_SOCKET,
-								 SO_ERROR, &res, &res_size);
-				if (res == EISCONN)
-					res = 0;
-				errno = res;
-			}
-			else if (timeout == -1) {
-				res = errno;            /* had error */
-			}
-			else
-				res = EWOULDBLOCK;                      /* timed out */
+void IblJock_Release(IblJock jock) {
+	if (jock->sock_map) {
+		register IblMap_Item iter;
+		for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
+			(void)SOCKETCLOSE(((JockMap)iter)->key);
 		}
+		IblMap_Free(jock->sock_map);
+	}
+}
+
+void IblJock_Update(IblJock jock, double timeout) {
+	if (!jock->sock_map) {
+		IblPrint_Err("[Jock] Update with uninitialized socket map.\n");
+		return;
+	}
+	register IblMap_Item iter;
+	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
+		register JockMap item = (JockMap)iter;
+		//TODO: Update
+	}
+}
+
+bool IblJock_Close(IblJock jock, IblSock sock) {
+
+}
+
+bool IblJock_Write(IblJock jock, IblSock sock, byte* data, size_t length) {
+
+}
+
+IblSock IblJock_Reconnect(IblJock jock, IblSockAddr addr) {
+	IblSock sock;
+	u_long nonblock = 1;
+	if (!jock->sock_map) {
+		IblPrint_Err("[Jock] Connect with uninitialized socket map.\n");
+		return -1;
 	}
 
-	if (res < 0)
-		res = errno;
-
+	if ((sock = socket(jock->sock_family, jock->sock_type, jock->sock_proto)) < 0) {
+		_PrintError();
+		return -1;
+	}
+#ifdef MS_WINDOWS
+	ioctlsocket(sock, FIONBIO, &nonblock);
+#else
+	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
 #endif
-	*timeoutp = timeout;
 
-	return res;
+	if (connect(sock, addr, sizeof(struct sockaddr_in)) < 0) {
+		(void)SOCKETCLOSE(sock);
+		_PrintError();
+		return -1;
+	}
+
+	register JockMap item = (JockMap)IblMap_Set(jock->sock_map, &sock);
+	if (item) {
+		item->jock = jock;
+		memcpy((char*)(&item->addr), addr, sizeof(struct sockaddr_in));
+	} else {
+		(void)SOCKETCLOSE(sock);
+		IblPrint_Err("[Jock] Set socket map error.\n");
+		return -1;
+	}
+
+	return sock;
+
 }
 
-/* s.connect(sockaddr) method */
-
-static PyObject *
-sock_connect(PySocketSockObject *s, PyObject *addro)
-{
-	sock_addr_t addrbuf;
-	int addrlen;
-	int res;
-	int timeout;
-
-	if (!getsockaddrarg(s, addro, SAS2SA(&addrbuf), &addrlen))
-		return NULL;
-
-	res = internal_connect(s, SAS2SA(&addrbuf), addrlen, &timeout);
-
-	if (timeout == 1) {
-		PyErr_SetString(socket_timeout, "timed out");
-		return NULL;
+IblSock IblJock_Connect(IblJock jock, char* host, int port) {
+	char ch;
+	int d1, d2, d3, d4;
+	struct sockaddr_in addr = {0};
+	if (jock->sock_family != AF_INET) {
+		IblPrint_Err("[Jock] Connect socket family must be AF_INET(%d).\n", AF_INET);
+		return -1;
+	} else if (port < 0 || port > 0xffff) {
+		IblPrint_Err("[Jock] Connect port(%d) must be 0-65535.\n", port);
+		return -1;
+	} else if (sscanf(host, "%d.%d.%d.%d%c", &d1, &d2, &d3, &d4, &ch) != 4 ||
+		0 > d1 || d1 > 255 || 0 > d2 || d2 > 255 || 0 > d3 || d3 > 255 || 0 > d4 || d4 > 255) {
+		IblPrint_Err("[Jock] Connect bad host(%s).\n", host);
+		return -1;
+	} else {
+		addr.sin_family = AF_INET;
+		addr.sin_addr.s_addr = htonl(((long) d1 << 24) | ((long) d2 << 16) | ((long) d3 << 8) | ((long) d4 << 0));
+		addr.sin_port = htons((short)port);
+#ifdef HAVE_SOCKADDR_SA_LEN
+		addr.sin_len = sizeof(addr);
+#endif
+		return IblJock_Reconnect(jock, (IblSockAddr)&addr);
 	}
-	if (res != 0)
-		return s->errorhandler();
-	Py_INCREF(Py_None);
-	return Py_None;
 }
-
-PyDoc_STRVAR(connect_doc,
-"connect(address)\n\
-\n\
-Connect the socket to a remote address.  For IP sockets, the address\n\
-is a pair (host, port).");
-
-/* s.close() method.
-   Set the file descriptor to -1 so operations tried subsequently
-   will surely fail. */
-
-static PyObject *
-sock_close(PySocketSockObject *s)
-{
-	SOCKET_T fd;
-
-	if ((fd = s->sock_fd) != -1) {
-		s->sock_fd = -1;
-		(void) SOCKETCLOSE(fd);
-	}
-	Py_INCREF(Py_None);
-	return Py_None;
-}
-
-PyDoc_STRVAR(close_doc,
-"close()\n\
-\n\
-Close the socket.  It cannot be used after this call.");
-
-/* s.setsockopt() method.
-   With an integer third argument, sets an integer option.
-   With a string third argument, sets an option from a buffer;
-   use optional built-in module 'struct' to encode the string. */
-
-static PyObject *
-sock_setsockopt(PySocketSockObject *s, PyObject *args)
-{
-	int level;
-	int optname;
-	int res;
-	char *buf;
-	int buflen;
-	int flag;
-
-	if (PyArg_ParseTuple(args, "iii:setsockopt",
-						 &level, &optname, &flag)) {
-		buf = (char *) &flag;
-		buflen = sizeof flag;
-	}
-	else {
-		PyErr_Clear();
-		if (!PyArg_ParseTuple(args, "iis#:setsockopt",
-							  &level, &optname, &buf, &buflen))
-			return NULL;
-	}
-	res = setsockopt(s->sock_fd, level, optname, (void *)buf, buflen);
-	if (res < 0)
-		return s->errorhandler();
-	Py_INCREF(Py_None);
-	return Py_None;
-}
-
-PyDoc_STRVAR(setsockopt_doc,
-"setsockopt(level, option, value)\n\
-\n\
-Set a socket option.  See the Unix manual for level and option.\n\
-The value argument can either be an integer or a string.");
 
 static PyObject *
 sock_recv(PySocketSockObject *s, PyObject *args)
