@@ -87,14 +87,67 @@ void IblJock_Release(IblJock jock) {
 }
 
 void IblJock_Update(IblJock jock, double timeout) {
+	struct timeval tv, *tvp;
+	fd_set ifdset, ofdset, efdset;
 	if (!jock->sock_map) {
 		IblPrint_Err("[Jock] Update with uninitialized socket map.\n");
 		return;
+	} else if (timeout > (double)LONG_MAX) {
+		IblPrint_Err("[Jock] Update timeout(%.2f) period too long.\n", timeout);
+		return;
 	}
+
+	FD_ZERO(&ifdset);
+	FD_ZERO(&ofdset);
+	FD_ZERO(&efdset);
+	if (timeout <= 0) {
+		tvp = (struct timeval *)0;
+	} else {
+		tv.tv_sec = (long)timeout;
+		tv.tv_usec = (long)((timeout - (double)(tv.tv_sec)) * 1E6);
+		tvp = &tv;
+	}
+
+	register IblSock max = 0;
 	register IblMap_Item iter;
 	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
 		register JockMap item = (JockMap)iter;
-		//TODO: Update
+		FD_SET(item->key, &ifdset);
+		FD_SET(item->key, &efdset);
+		if (IblBuffer_Length(&(item->wbuf)) > 0) {
+			FD_SET(item->key, &ofdset);
+		}
+#ifndef _MSC_VER
+		if (item->key > max) {
+			max = item->key;
+		}
+#endif
+	}
+
+#ifdef MS_WINDOWS
+	if (select(max, &ifdset, &ofdset, &efdset, tvp) == SOCKET_ERROR) {
+		_PrintError();
+		return;
+	}
+#else
+	if (select(max, &ifdset, &ofdset, &efdset, tvp) < 0) {
+		_PrintError();
+		return;
+	}
+#endif
+
+	register IblMap_Item iter;
+	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
+		register JockMap item = (JockMap)iter;
+		if (FD_ISSET(item->key, &ifdset)) {
+			//TODO: Read
+		}
+		if (FD_ISSET(item->key, &ofdset)) {
+			//TODO: Write
+		}
+		if (FD_ISSET(item->key, &efdset)) {
+			//TODO: Close
+		}
 	}
 }
 
@@ -111,7 +164,7 @@ bool IblJock_Close(IblJock jock, IblSock sock) {
 	}
 	IblBuffer_Free(&(item->rbuf));
 	IblBuffer_Free(&(item->wbuf));
-	return true;
+	return IblMap_Del(jock->sock_map, &sock);
 }
 
 bool IblJock_Write(IblJock jock, IblSock sock, byte* data, size_t length) {
@@ -154,11 +207,17 @@ IblSock IblJock_Reconnect(IblJock jock, IblSockAddr addr) {
 	register JockMap item = (JockMap)IblMap_Set(jock->sock_map, &sock);
 	if (item) {
 		item->jock = jock;
-		memcpy((char*)(&item->addr), addr, sizeof(struct sockaddr_in));
+		IblBuffer_Init(&(item->rbuf));
+		IblBuffer_Init(&(item->wbuf));
+		memcpy((char*)(&(item->addr)), addr, sizeof(struct sockaddr_in));
 	} else {
 		(void)SOCKETCLOSE(sock);
 		IblPrint_Err("[Jock] Set socket map error.\n");
 		return -1;
+	}
+
+	if (jock->handle_connect) {
+		jock->handle_connect(sock, &(item->addr));
 	}
 
 	return sock;
