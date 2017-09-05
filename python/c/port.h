@@ -179,6 +179,19 @@ IblAPI(IblBitmap) IblBitmap_New(size_t);
 IblAPI(bool)      IblBitmap_Get(IblBitmap, size_t);
 IblAPI(bool)      IblBitmap_Set(IblBitmap, size_t, bool);
 
+typedef struct _buffer {
+	byte*  buf_data;
+	size_t buf_head;
+	size_t buf_tail;
+	size_t buf_cap;
+} IblBuffer;
+
+#define IblBuffer_Read(b, n) do { ((IblBuffer*)(b))->buf_head += (n); } while (0)
+#define IblBuffer_Free(b)    do { if (((IblBuffer*)(b))->buf_data) { \
+	free(((IblBuffer*)(b))->buf_data); ((IblBuffer*)(b))->buf_data = NULL; } } while (0)
+
+IblAPI(void) IblBuffer_Write (IblBuffer*, byte*, size_t);
+
 #ifdef __cplusplus
 }
 #endif

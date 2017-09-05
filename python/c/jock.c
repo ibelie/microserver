@@ -15,7 +15,9 @@ extern "C" {
 #endif
 
 IblMap_KEY_NUMERIC(JockMap, IblSock,
-	IblJock jock;
+	IblJock   jock;
+	IblBuffer rbuf;
+	IblBuffer wbuf;
 	struct sockaddr addr;
 );
 
@@ -75,7 +77,10 @@ void IblJock_Release(IblJock jock) {
 	if (jock->sock_map) {
 		register IblMap_Item iter;
 		for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
-			(void)SOCKETCLOSE(((JockMap)iter)->key);
+			register JockMap item = (JockMap)iter;
+			(void)SOCKETCLOSE(item->key);
+			IblBuffer_Free(&(item->rbuf));
+			IblBuffer_Free(&(item->wbuf));
 		}
 		IblMap_Free(jock->sock_map);
 	}
@@ -94,11 +99,32 @@ void IblJock_Update(IblJock jock, double timeout) {
 }
 
 bool IblJock_Close(IblJock jock, IblSock sock) {
-
+	(void)SOCKETCLOSE(sock);
+	if (!jock->sock_map) {
+		IblPrint_Err("[Jock] Close with uninitialized socket map.\n");
+		return false;
+	}
+	register JockMap item = (JockMap)IblMap_Get(jock->sock_map, &sock);
+	if (!item) {
+		IblPrint_Err("[Jock] Close socket not in map.\n");
+		return false;
+	}
+	IblBuffer_Free(&(item->rbuf));
+	IblBuffer_Free(&(item->wbuf));
+	return true;
 }
 
 bool IblJock_Write(IblJock jock, IblSock sock, byte* data, size_t length) {
-
+	if (!jock->sock_map) {
+		IblPrint_Err("[Jock] Write with uninitialized socket map.\n");
+		return false;
+	}
+	register JockMap item = (JockMap)IblMap_Get(jock->sock_map, &sock);
+	if (!item) {
+		IblPrint_Err("[Jock] Write socket not in map.\n");
+		return false;
+	}
+	return IblBuffer_Write(&(item->wbuf), data, length);
 }
 
 IblSock IblJock_Reconnect(IblJock jock, IblSockAddr addr) {

@@ -184,6 +184,32 @@ bool IblBitmap_Set(IblBitmap bitmap, size_t bit, bool flag) {
 	}
 }
 
+bool IblBuffer_Write(IblBuffer* b, byte* d, size_t l) {
+	if (!b->buf_data) {
+		b->buf_head = 0;
+		b->buf_tail = 0;
+		b->buf_cap += 2 * l;
+		b->buf_data = (byte*)calloc(b->buf_cap, sizeof(byte));
+		if (!b->buf_data) { return false; }
+	} else if (b->buf_tail - b->buf_head + l > b->buf_cap) {
+		b->buf_cap += 2 * l;
+		register byte* buf = (byte*)calloc(b->buf_cap, sizeof(byte));
+		if (!buf) { return false; }
+		memcpy(buf, b->buf_data + b->buf_head, b->buf_tail - b->buf_head);
+		b->buf_head = 0;
+		b->buf_tail -= b->buf_head;
+		free(b->buf_data);
+		b->buf_data = buf;
+	} else if (b->buf_tail + l > b->buf_cap) {
+		memmove(b->buf_data, b->buf_data + b->buf_head, b->buf_tail - b->buf_head);
+		b->buf_head = 0;
+		b->buf_tail -= b->buf_head;
+	}
+	memcpy(b->buf_data + b->buf_tail, d, l);
+	b->buf_tail += l;
+	return true;
+}
+
 #ifdef __cplusplus
 }
 #endif
