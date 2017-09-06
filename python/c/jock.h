@@ -26,9 +26,9 @@ typedef int IblSock;
 
 typedef struct sockaddr *IblSockAddr
 
-typedef void   (*IblJock_HandleConnect) (IblSock, IblSockAddr);
-typedef void   (*IblJock_HandleClose)   (IblSock, IblSockAddr);
-typedef size_t (*IblJock_HandleRead)    (IblSock, IblSockAddr, byte*, size_t);
+typedef void   (*IblJock_HandleConnect) (IblJock, IblSock, IblSockAddr);
+typedef void   (*IblJock_HandleClose)   (IblJock, IblSock, IblSockAddr);
+typedef size_t (*IblJock_HandleRead)    (IblJock, IblSock, IblSockAddr, byte*, size_t);
 
 typedef struct _IblJock {
 	int    sock_family; /* Address family, e.g., AF_INET */

@@ -103,6 +103,8 @@ void IblJock_Update(IblJock jock, double timeout) {
 	if (!jock->sock_map) {
 		IblPrint_Err("[Jock] Update with uninitialized socket map.\n");
 		return;
+	} else if (IblMap_Size(jock->sock_map) <= 0) {
+		return;
 	} else if (timeout > (double)LONG_MAX) {
 		IblPrint_Err("[Jock] Update timeout(%.2f) period too long.\n", timeout);
 		return;
@@ -162,7 +164,7 @@ void IblJock_Update(IblJock jock, double timeout) {
 			} else if (!IblBuffer_Write(&(item->rbuf), buf, len)) {
 				IblPrint_Err("[Jock] Update recv write buffer error.\n");
 			} else {
-				IblBuffer_Read(&(item->rbuf), jock->handle_read(item->key, &(item->addr),
+				IblBuffer_Read(&(item->rbuf), jock->handle_read(jock, item->key, &(item->addr),
 					IblBuffer_Bytes(&(item->rbuf)), IblBuffer_Length(&(item->rbuf))));
 			}
 		}
@@ -177,7 +179,7 @@ void IblJock_Update(IblJock jock, double timeout) {
 		}
 		if (FD_ISSET(item->key, &efdset)) {
 			if (jock->handle_close) {
-				jock->handle_close(item->key, &(item->addr));
+				jock->handle_close(jock, item->key, &(item->addr));
 			}
 			(void)SOCKETCLOSE(item->key);
 			IblBuffer_Free(&(item->rbuf));
@@ -253,7 +255,7 @@ IblSock IblJock_Reconnect(IblJock jock, IblSockAddr addr) {
 	}
 
 	if (jock->handle_connect) {
-		jock->handle_connect(sock, &(item->addr));
+		jock->handle_connect(jock, sock, &(item->addr));
 	}
 
 	return sock;
