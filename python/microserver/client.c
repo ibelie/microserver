@@ -61,7 +61,7 @@ static void IblJock_HandleConnect(IblJock jock, IblSock sock, IblSockAddr addr) 
 
 }
 
-static void IblJock_HandleClose(IblJock jock, IblSock sock_old, IblSockAddr addr) {
+static void IblJock_HandleClose(IblJock jock, IblSock sock, IblSockAddr addr) {
 	IblJock_Reconnect(jock, addr);
 }
 
@@ -93,19 +93,21 @@ static PyObject* Update(PyObject* m, PyObject* arg) {
 	Py_RETURN_NONE;
 }
 
+/*====================================================================*/
+
 typedef struct {
 	PyObject_HEAD
 	Kw_Storage storage;
-} StorageObject;
+} TcpClientObject;
 
-extern PyTypeObject Storage_Type;
+extern PyTypeObject TcpClient_Type;
 
-static void Storage_Dealloc(register StorageObject* self) {
+static void TcpClient_Dealloc(register StorageObject* self) {
 	Kw_Free(&self->storage);
 	PyObject_Del(self);
 }
 
-static PyObject* Storage_New(PyTypeObject* cls, PyObject* args, PyObject* kwargs) {
+static PyObject* TcpClient_New(PyTypeObject* cls, PyObject* args, PyObject* kwargs) {
 	StorageObject* self;
 	PyObject *file = NULL;
 	static char *kwlist[] = {"filename", 0};
@@ -114,7 +116,7 @@ static PyObject* Storage_New(PyTypeObject* cls, PyObject* args, PyObject* kwargs
 		return NULL;
 	} else if (!(file = _CheckBytes(file, "filename"))) {
 		return NULL;
-	} else if (!(self = PyObject_New(StorageObject, &Storage_Type))) {
+	} else if (!(self = PyObject_New(StorageObject, &TcpClient_Type))) {
 		Py_DECREF(file);
 		return NULL;
 	} else if (!(self->storage = Kw_New(PyBytes_AS_STRING(file)))) {
@@ -126,7 +128,7 @@ static PyObject* Storage_New(PyTypeObject* cls, PyObject* args, PyObject* kwargs
 	return (PyObject*)self;
 }
 
-static PyObject* Storage_Get(StorageObject* self, PyObject* k) {
+static PyObject* TcpClient_Get(StorageObject* self, PyObject* k) {
 	struct _bytes key, value;
 	if (!(k = _CheckBytes(k, "key"))) {
 		return NULL;
@@ -144,35 +146,18 @@ static PyObject* Storage_Get(StorageObject* self, PyObject* k) {
 	return v;
 }
 
-static PyMethodDef Storage_Methods[] = {
-	{ "Get", (PyCFunction)Storage_Get, METH_O,
+static PyMethodDef TcpClient_Methods[] = {
+	{ "Get", (PyCFunction)TcpClient_Get, METH_O,
 		"Get value bytes of key." },
-	{ "Set", (PyCFunction)Storage_Set, METH_O,
-		"Set map data of key and value and save storage file." },
-	{ "Log", (PyCFunction)Storage_Log, METH_VARARGS,
-		"Log: a list of timestones." },
-	{ "Rollback", (PyCFunction)Storage_Rollback, METH_O,
-		"Rollback to the last timestone before timestamp,"
-		"and clear all data after timestamp." },
-	{ "Lighten", (PyCFunction)Storage_Lighten, METH_O,
-		"Lighten to the first timestone after timestamp,"
-		"and clear all invalid data before timestamp." },
-	{ "Lighten", (PyCFunction)Storage_Lighten, METH_O,
-		"Lighten to the first timestone after timestamp,"
-		"and clear all invalid data before timestamp." },
-	{ "__enter__", (PyCFunction)Storage_Enter, METH_NOARGS,
-		"__enter__() -> self." },
-	{ "__exit__", (PyCFunction)Storage_Exit, METH_VARARGS,
-		"__exit__(*excinfo) -> None.  Close the storage." },
 	{ NULL, NULL}
 };
 
-PyTypeObject Storage_Type = {
+PyTypeObject TcpClient_Type = {
 	PyVarObject_HEAD_INIT(0, 0)
 	"_kiwilite.Storage",                      /* tp_name           */
 	sizeof(StorageObject),                    /* tp_basicsize      */
 	0,                                        /* tp_itemsize       */
-	(destructor)Storage_Dealloc,              /* tp_dealloc        */
+	(destructor)TcpClient_Dealloc,              /* tp_dealloc        */
 	0,                                        /* tp_print          */
 	0,                                        /* tp_getattr        */
 	0,                                        /* tp_setattr        */
@@ -195,7 +180,7 @@ PyTypeObject Storage_Type = {
 	0,                                        /* tp_weaklistoffset */
 	0,                                        /* tp_iter           */
 	0,                                        /* tp_iternext       */
-	Storage_Methods,                          /* tp_methods        */
+	TcpClient_Methods,                          /* tp_methods        */
 	0,                                        /* tp_members        */
 	0,                                        /* tp_getset         */
 	0,                                        /* tp_base           */
@@ -205,7 +190,7 @@ PyTypeObject Storage_Type = {
 	0,                                        /* tp_dictoffset     */
 	0,                                        /* tp_init           */
 	0,                                        /* tp_alloc          */
-	Storage_New,                              /* tp_new            */
+	TcpClient_New,                              /* tp_new            */
 };
 
 static const char module_docstring[] =
@@ -251,12 +236,12 @@ PyMODINIT_FUNC INITFUNC(void) {
 		return INITFUNC_ERRORVAL;
 	}
 
-	Storage_Type.ob_type = &PyType_Type;
-	if (PyType_Ready(&Storage_Type) < 0) {
+	TcpClient_Type.ob_type = &PyType_Type;
+	if (PyType_Ready(&TcpClient_Type) < 0) {
 		Py_DECREF(m);
 		return INITFUNC_ERRORVAL;
 	}
-	PyModule_AddObject(m, "Storage", (PyObject*)&Storage_Type);
+	PyModule_AddObject(m, "TcpClient", (PyObject*)&TcpClient_Type);
 
 #if PY_MAJOR_VERSION >= 3
 	return m;
