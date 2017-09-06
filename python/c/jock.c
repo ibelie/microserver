@@ -10,6 +10,10 @@
 #	define SOCKETCLOSE close
 #endif
 
+#ifndef FD_SETSIZE
+#	define FD_SETSIZE 512
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -87,8 +91,10 @@ void IblJock_Release(IblJock jock) {
 }
 
 void IblJock_Update(IblJock jock, double timeout) {
-	struct timeval tv, *tvp;
+	struct timeval tv, *tvp = (struct timeval *)NULL;
 	fd_set ifdset, ofdset, efdset;
+	size_t its_len = 0;
+	JockMap its[FD_SETSIZE];
 	if (!jock->sock_map) {
 		IblPrint_Err("[Jock] Update with uninitialized socket map.\n");
 		return;
@@ -100,9 +106,7 @@ void IblJock_Update(IblJock jock, double timeout) {
 	FD_ZERO(&ifdset);
 	FD_ZERO(&ofdset);
 	FD_ZERO(&efdset);
-	if (timeout <= 0) {
-		tvp = (struct timeval *)0;
-	} else {
+	if (timeout > 0) {
 		tv.tv_sec = (long)timeout;
 		tv.tv_usec = (long)((timeout - (double)(tv.tv_sec)) * 1E6);
 		tvp = &tv;
@@ -110,12 +114,18 @@ void IblJock_Update(IblJock jock, double timeout) {
 
 	register IblSock max = 0;
 	register IblMap_Item iter;
-	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
+	if (IblMap_Size(jock->sock_map) > FD_SETSIZE) {
+		IblPrint_Err("[Jock] Update socket map size(%d) more than FD_SETSIZE(" #FD_SETSIZE ").\n", IblMap_Size(jock->sock_map));
+	}
+	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter), fds_len++) {
 		register JockMap item = (JockMap)iter;
 		FD_SET(item->key, &ifdset);
 		FD_SET(item->key, &efdset);
 		if (IblBuffer_Length(&(item->wbuf)) > 0) {
 			FD_SET(item->key, &ofdset);
+		}
+		if (fds_len <= FD_SETSIZE) {
+			its[fds_len] = item;
 		}
 #ifndef _MSC_VER
 		if (item->key > max) {
@@ -136,9 +146,8 @@ void IblJock_Update(IblJock jock, double timeout) {
 	}
 #endif
 
-	register IblMap_Item iter;
-	for (iter = IblMap_Begin(jock->sock_map); iter; iter = IblMap_Next(jock->sock_map, iter)) {
-		register JockMap item = (JockMap)iter;
+	for (register size_t i = 0; i < fds_len; i++) {
+		register JockMap item = its[i];
 		if (FD_ISSET(item->key, &ifdset)) {
 			//TODO: Read
 		}
@@ -146,7 +155,13 @@ void IblJock_Update(IblJock jock, double timeout) {
 			//TODO: Write
 		}
 		if (FD_ISSET(item->key, &efdset)) {
-			//TODO: Close
+			if (jock->handle_close) {
+				jock->handle_close(item->key, &(item->addr));
+			}
+			(void)SOCKETCLOSE(item->key);
+			IblBuffer_Free(&(item->rbuf));
+			IblBuffer_Free(&(item->wbuf));
+			IblMap_Del(jock->sock_map, &(item->key));
 		}
 	}
 }
