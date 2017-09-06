@@ -15,12 +15,11 @@ def Update(timeout = 0.01):
 	asyncore.loop(timeout = timeout, use_poll = True, count = 1)
 
 
-class TcpClient(classes.BaseClient, asyncore.dispatcher):
+class TcpClient(asyncore.dispatcher, classes.BaseClient):
 	BUFFER_SIZE = 4096
 
 	def __init__(self, host, port):
 		super(TcpClient, self).__init__()
-		asyncore.dispatcher.__init__(self)
 		import proto
 		self.IDType = common.IDTypes[proto.IDType]
 		self.write_buffer = io.BytesIO()
