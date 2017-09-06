@@ -14,6 +14,10 @@
 #	define FD_SETSIZE 512
 #endif
 
+#ifndef BUFFER_SIZE
+#	define BUFFER_SIZE 4096
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -95,6 +99,7 @@ void IblJock_Update(IblJock jock, double timeout) {
 	fd_set ifdset, ofdset, efdset;
 	size_t its_len = 0;
 	JockMap its[FD_SETSIZE];
+	char buf[BUFFER_SIZE];
 	if (!jock->sock_map) {
 		IblPrint_Err("[Jock] Update with uninitialized socket map.\n");
 		return;
@@ -149,10 +154,26 @@ void IblJock_Update(IblJock jock, double timeout) {
 	for (register size_t i = 0; i < fds_len; i++) {
 		register JockMap item = its[i];
 		if (FD_ISSET(item->key, &ifdset)) {
-			//TODO: Read
+			register ssize_t len = recv(item->key, buf, BUFFER_SIZE, 0);
+			if (len < 0) {
+				_PrintError();
+			} else if (!jock->handle_read) {
+				IblPrint_Err("[Jock] Update recv no handler.\n");
+			} else if (!IblBuffer_Write(&(item->rbuf), buf, len)) {
+				IblPrint_Err("[Jock] Update recv write buffer error.\n");
+			} else {
+				IblBuffer_Read(&(item->rbuf), jock->handle_read(item->key, &(item->addr),
+					IblBuffer_Bytes(&(item->rbuf)), IblBuffer_Length(&(item->rbuf))));
+			}
 		}
 		if (FD_ISSET(item->key, &ofdset)) {
-			//TODO: Write
+			register int n = send(item->key, IblBuffer_Bytes(&(item->wbuf)),
+				IblBuffer_Length(&(item->wbuf)), 0);
+			if (n < 0) {
+				_PrintError();
+			} else {
+				IblBuffer_Read(&(item->wbuf), n);
+			}
 		}
 		if (FD_ISSET(item->key, &efdset)) {
 			if (jock->handle_close) {
@@ -262,244 +283,6 @@ IblSock IblJock_Connect(IblJock jock, char* host, int port) {
 #endif
 		return IblJock_Reconnect(jock, (IblSockAddr)&addr);
 	}
-}
-
-static PyObject *
-sock_recv(PySocketSockObject *s, PyObject *args)
-{
-	int recvlen, flags = 0;
-	ssize_t outlen;
-	PyObject *buf;
-
-	if (!PyArg_ParseTuple(args, "i|i:recv", &recvlen, &flags))
-		return NULL;
-
-	if (recvlen < 0) {
-		PyErr_SetString(PyExc_ValueError,
-						"negative buffersize in recv");
-		return NULL;
-	}
-
-	/* Allocate a new string. */
-	buf = PyString_FromStringAndSize((char *) 0, recvlen);
-	if (buf == NULL)
-		return NULL;
-
-	/* Call the guts */
-	outlen = sock_recv_guts(s, PyString_AS_STRING(buf), recvlen, flags);
-	if (outlen < 0) {
-		/* An error occurred, release the string and return an
-		   error. */
-		Py_DECREF(buf);
-		return NULL;
-	}
-	if (outlen != recvlen) {
-		/* We did not read as many bytes as we anticipated, resize the
-		   string if possible and be successful. */
-		if (_PyString_Resize(&buf, outlen) < 0)
-			/* Oopsy, not so successful after all. */
-			return NULL;
-	}
-
-	return buf;
-}
-
-PyDoc_STRVAR(recv_doc,
-"recv(buffersize[, flags]) -> data\n\
-\n\
-Receive up to buffersize bytes from the socket.  For the optional flags\n\
-argument, see the Unix manual.  When no data is available, block until\n\
-at least one byte is available or until the remote end is closed.  When\n\
-the remote end is closed and all data is read, return the empty string.");
-
-static PyObject *
-sock_sendall(PySocketSockObject *s, PyObject *args)
-{
-	char *buf;
-	int len, n = -1, flags = 0, timeout, saved_errno;
-	Py_buffer pbuf;
-
-	if (!PyArg_ParseTuple(args, "s*|i:sendall", &pbuf, &flags))
-		return NULL;
-	buf = pbuf.buf;
-	len = pbuf.len;
-
-	if (!IS_SELECTABLE(s)) {
-		PyBuffer_Release(&pbuf);
-		return select_error();
-	}
-
-	do {
-		BEGIN_SELECT_LOOP(s)
-		timeout = internal_select_ex(s, 1, interval);
-		n = -1;
-		if (!timeout) {
-			n = send(s->sock_fd, buf, len, flags);
-		}
-		if (timeout == 1) {
-			PyBuffer_Release(&pbuf);
-			PyErr_SetString(socket_timeout, "timed out");
-			return NULL;
-		}
-		END_SELECT_LOOP(s)
-		/* PyErr_CheckSignals() might change errno */
-		saved_errno = errno;
-		/* We must run our signal handlers before looping again.
-		   send() can return a successful partial write when it is
-		   interrupted, so we can't restrict ourselves to EINTR. */
-		if (PyErr_CheckSignals()) {
-			PyBuffer_Release(&pbuf);
-			return NULL;
-		}
-		if (n < 0) {
-			/* If interrupted, try again */
-			if (saved_errno == EINTR)
-				continue;
-			else
-				break;
-		}
-		buf += n;
-		len -= n;
-	} while (len > 0);
-	PyBuffer_Release(&pbuf);
-
-	if (n < 0)
-		return s->errorhandler();
-
-	Py_INCREF(Py_None);
-	return Py_None;
-}
-
-PyDoc_STRVAR(sendall_doc,
-"sendall(data[, flags])\n\
-\n\
-Send a data string to the socket.  For the optional flags\n\
-argument, see the Unix manual.  This calls send() repeatedly\n\
-until all data is sent.  If an error occurs, it's impossible\n\
-to tell how much data has been sent.");
-
-static PyObject *
-select_select(PyObject *self, PyObject *args)
-{
-#ifdef SELECT_USES_HEAP
-	pylist *rfd2obj, *wfd2obj, *efd2obj;
-#else  /* !SELECT_USES_HEAP */
-	/* XXX: All this should probably be implemented as follows:
-	 * - find the highest descriptor we're interested in
-	 * - add one
-	 * - that's the size
-	 * See: Stevens, APitUE, $12.5.1
-	 */
-	pylist rfd2obj[FD_SETSIZE + 1];
-	pylist wfd2obj[FD_SETSIZE + 1];
-	pylist efd2obj[FD_SETSIZE + 1];
-#endif /* SELECT_USES_HEAP */
-	PyObject *ifdlist, *ofdlist, *efdlist;
-	PyObject *ret = NULL;
-	PyObject *tout = Py_None;
-	fd_set ifdset, ofdset, efdset;
-	double timeout;
-	struct timeval tv, *tvp;
-	long seconds;
-	int imax, omax, emax, max;
-	int n;
-
-	/* convert arguments */
-	if (!PyArg_UnpackTuple(args, "select", 3, 4,
-						  &ifdlist, &ofdlist, &efdlist, &tout))
-		return NULL;
-
-	if (tout == Py_None)
-		tvp = (struct timeval *)0;
-	else if (!PyNumber_Check(tout)) {
-		PyErr_SetString(PyExc_TypeError,
-						"timeout must be a float or None");
-		return NULL;
-	}
-	else {
-		timeout = PyFloat_AsDouble(tout);
-		if (timeout == -1 && PyErr_Occurred())
-			return NULL;
-		if (timeout > (double)LONG_MAX) {
-			PyErr_SetString(PyExc_OverflowError,
-							"timeout period too long");
-			return NULL;
-		}
-		seconds = (long)timeout;
-		timeout = timeout - (double)seconds;
-		tv.tv_sec = seconds;
-		tv.tv_usec = (long)(timeout * 1E6);
-		tvp = &tv;
-	}
-
-
-#ifdef SELECT_USES_HEAP
-	/* Allocate memory for the lists */
-	rfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
-	wfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
-	efd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
-	if (rfd2obj == NULL || wfd2obj == NULL || efd2obj == NULL) {
-		if (rfd2obj) PyMem_DEL(rfd2obj);
-		if (wfd2obj) PyMem_DEL(wfd2obj);
-		if (efd2obj) PyMem_DEL(efd2obj);
-		return PyErr_NoMemory();
-	}
-#endif /* SELECT_USES_HEAP */
-	/* Convert sequences to fd_sets, and get maximum fd number
-	 * propagates the Python exception set in seq2set()
-	 */
-	rfd2obj[0].sentinel = -1;
-	wfd2obj[0].sentinel = -1;
-	efd2obj[0].sentinel = -1;
-	if ((imax=seq2set(ifdlist, &ifdset, rfd2obj)) < 0)
-		goto finally;
-	if ((omax=seq2set(ofdlist, &ofdset, wfd2obj)) < 0)
-		goto finally;
-	if ((emax=seq2set(efdlist, &efdset, efd2obj)) < 0)
-		goto finally;
-	max = imax;
-	if (omax > max) max = omax;
-	if (emax > max) max = emax;
-
-	n = select(max, &ifdset, &ofdset, &efdset, tvp);
-
-#ifdef MS_WINDOWS
-	if (n == SOCKET_ERROR) {
-		PyErr_SetExcFromWindowsErr(SelectError, WSAGetLastError());
-	}
-#else
-	if (n < 0) {
-		PyErr_SetFromErrno(SelectError);
-	}
-#endif
-	else {
-		/* any of these three calls can raise an exception.  it's more
-		   convenient to test for this after all three calls... but
-		   is that acceptable?
-		*/
-		ifdlist = set2list(&ifdset, rfd2obj);
-		ofdlist = set2list(&ofdset, wfd2obj);
-		efdlist = set2list(&efdset, efd2obj);
-		if (PyErr_Occurred())
-			ret = NULL;
-		else
-			ret = PyTuple_Pack(3, ifdlist, ofdlist, efdlist);
-
-		Py_DECREF(ifdlist);
-		Py_DECREF(ofdlist);
-		Py_DECREF(efdlist);
-	}
-
-  finally:
-	reap_obj(rfd2obj);
-	reap_obj(wfd2obj);
-	reap_obj(efd2obj);
-#ifdef SELECT_USES_HEAP
-	PyMem_DEL(rfd2obj);
-	PyMem_DEL(wfd2obj);
-	PyMem_DEL(efd2obj);
-#endif /* SELECT_USES_HEAP */
-	return ret;
 }
 
 #ifdef __cplusplus

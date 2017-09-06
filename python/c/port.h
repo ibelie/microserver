@@ -186,6 +186,7 @@ typedef struct _buffer {
 	size_t buf_cap;
 } IblBuffer;
 
+#define IblBuffer_Bytes(b)   (((IblBuffer*)(b))->buf_data + ((IblBuffer*)(b))->buf_head)
 #define IblBuffer_Length(b)  (((IblBuffer*)(b))->buf_tail - ((IblBuffer*)(b))->buf_head)
 #define IblBuffer_Read(b, n) do { ((IblBuffer*)(b))->buf_head += (n); } while (0)
 #define IblBuffer_Init(b)    do { memset((char*)(b), 0, sizeof(IblBuffer)); } while (0)
