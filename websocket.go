@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"encoding/base64"
+	"net/http"
+
 	"github.com/ibelie/rpc"
 	"golang.org/x/net/websocket"
-	"net/http"
 )
 
 const EncodeWS = "-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
@@ -53,7 +54,7 @@ type WsNet int
 var Websocket WsNet = 0
 
 func (_ WsNet) Serve(address string, handler func(rpc.Connection)) {
-	http.Handle("/", http.FileServer(http.Dir(".")))
+	// http.Handle("/", http.FileServer(http.Dir(".")))
 	http.Handle("/mws", websocket.Handler(func(ws *websocket.Conn) {
 		handler(&WsConn{Conn: ws})
 	}))
