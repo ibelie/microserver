@@ -246,7 +246,13 @@ class BaseClient(object):
 		import proto
 		ID, offset = self.IDType[3](buffer, 0)
 		if self.Symbols is None:
-			offset, self.Symbols, self.SymDict = common.readSymbols(buffer, offset)
+			version = buffer[offset:offset+16]
+			if version != proto.Version:
+				print '[Connection] Client version error:', version, proto.version
+				return
+			offset += 16
+			self.Symbols = proto.Symbols
+			self.SymDict = {s: i for i, s in enumerate(proto.Symbols)}
 			k, offset = self.IDType[3](buffer, offset)
 			t, offset = common.readVarint(buffer, offset)
 			entity = self.CreateEntity(ID, k, self.Symbols[t])

@@ -108,20 +108,6 @@ IDTypes = {
 }
 
 
-def readSymbols(buffer, offset):
-	Symbols = []
-	SymDict = {}
-	buf, offset = readBytes(buffer, offset)
-	off = value = 0
-	while off < len(buf):
-		symbol, off = readBytes(buf, off)
-		symbol = DecodeSymbol(symbol)
-		Symbols.append(symbol)
-		SymDict[symbol] = value
-		value += 1
-	return offset, Symbols, SymDict
-
-
 def pack(data):
 	output = BytesIO()
 	writeBytes(output.write, data)
